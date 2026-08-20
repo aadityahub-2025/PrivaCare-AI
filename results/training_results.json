@@ -1,0 +1,113 @@
+{
+  "run_info": {
+    "timestamp": "2026-08-17T14:16:40.063253",
+    "elapsed_sec": 6.36,
+    "data_path": "data/dataset.csv",
+    "train_size": 4800,
+    "test_size_n": 1200
+  },
+  "privacy": {
+    "mechanism": "Gaussian",
+    "epsilon": 0.5,
+    "delta": 1e-05,
+    "sensitivity": 1.0,
+    "sigma": 9.689611,
+    "guarantee": "(0.5, 1e-05)-Differential Privacy",
+    "interpretation": "Noise sigma=9.6896 add kiya gaya. Attacker epsilon=0.5 budget mein kisi bhi record identify nahi kar sakta (failure prob < 1e-05)."
+  },
+  "model_config": {
+    "type": "RandomForestClassifier",
+    "n_estimators": 200,
+    "max_depth": 15,
+    "dp_applied": "training_features_only"
+  },
+  "performance": {
+    "baseline_accuracy": 0.9992,
+    "dp_accuracy": 0.2317,
+    "accuracy_drop": 0.7675,
+    "cv_mean": 0.2425,
+    "cv_std": 0.0946,
+    "auc_roc_baseline": 1.0,
+    "auc_roc_dp": 0.5174,
+    "confusion_matrix": [
+      [
+        160,
+        133,
+        5,
+        2
+      ],
+      [
+        217,
+        43,
+        38,
+        2
+      ],
+      [
+        195,
+        31,
+        74,
+        0
+      ],
+      [
+        214,
+        36,
+        49,
+        1
+      ]
+    ],
+    "classification_report": {
+      "0": {
+        "precision": 0.2035623409669211,
+        "recall": 0.5333333333333333,
+        "f1-score": 0.2946593001841621,
+        "support": 300.0
+      },
+      "1": {
+        "precision": 0.17695473251028807,
+        "recall": 0.14333333333333334,
+        "f1-score": 0.15837937384898712,
+        "support": 300.0
+      },
+      "2": {
+        "precision": 0.4457831325301205,
+        "recall": 0.24666666666666667,
+        "f1-score": 0.31759656652360513,
+        "support": 300.0
+      },
+      "3": {
+        "precision": 0.2,
+        "recall": 0.0033333333333333335,
+        "f1-score": 0.006557377049180328,
+        "support": 300.0
+      },
+      "accuracy": 0.23166666666666666,
+      "macro avg": {
+        "precision": 0.2565750515018324,
+        "recall": 0.23166666666666666,
+        "f1-score": 0.19429815440148368,
+        "support": 1200.0
+      },
+      "weighted avg": {
+        "precision": 0.2565750515018324,
+        "recall": 0.23166666666666666,
+        "f1-score": 0.19429815440148365,
+        "support": 1200.0
+      }
+    }
+  },
+  "feature_importance": {
+    "heart_rate": 0.076432,
+    "blood_oxygen": 0.07474,
+    "blood_pressure_systolic": 0.072402,
+    "blood_pressure_diastolic": 0.078504,
+    "glucose_level": 0.076204,
+    "body_temperature": 0.079327,
+    "respiratory_rate": 0.082989,
+    "activity_level": 0.085246,
+    "sleep_quality": 0.073108,
+    "stress_level": 0.061277,
+    "hrv_sdnn": 0.083443,
+    "steps_count": 0.081343,
+    "calories_burned": 0.074985
+  }
+}
