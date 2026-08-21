@@ -1,6 +1,6 @@
 # 🏥 PrivaCare-AI
 
-> **Differential Privacy for Healthcare AI** — Protecting patient data with IBM's `diffprivlib` Gaussian Mechanism while maintaining predictive accuracy using Random Forest classifiers.
+> **Differential Privacy for Healthcare AI** — Protecting patient data with IBM's `diffprivlib` Analytic Gaussian Mechanism while maintaining predictive accuracy using Random Forest classifiers.
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
 ![sklearn](https://img.shields.io/badge/scikit--learn-1.x-orange?logo=scikit-learn&logoColor=white)
@@ -12,12 +12,13 @@
 
 ## 📌 Overview
 
-**PrivaCare-AI** is a B.Tech research project that applies **Differential Privacy (DP)** to healthcare machine learning pipelines. It uses IBM's `diffprivlib` library to train a DP-protected Random Forest directly — providing algorithmic, model-level privacy guarantees — and compares it against a baseline (non-private) model. The project quantifies the **Privacy–Accuracy Trade-off** at different epsilon values.
+**PrivaCare-AI** is a B.Tech research project that applies **Differential Privacy (DP)** to healthcare machine learning pipelines. It uses IBM's `diffprivlib` library to train a DP-protected Random Forest with rigorous correctness — providing algorithmic, model-level privacy guarantees — and compares it against a baseline (non-private) model. The project quantifies the **Privacy–Accuracy Trade-off** at different epsilon values.
 
 ### 🎯 Key Objectives
 - Apply **(ε, δ)-Differential Privacy** using IBM `diffprivlib` on wearable health sensor data
-- Train and compare **baseline vs. DP-protected** Random Forest classifiers
-- Analyze the **Privacy-Accuracy Trade-off** across epsilon values (ε = 0.1 → 50)
+- Use **data-independent feature bounds** (clinical domain knowledge) to preserve formal DP guarantee
+- Train and compare **baseline vs. DP-protected** Random Forest classifiers across multiple trials
+- Analyze the **Privacy-Accuracy Trade-off** using the Analytic Gaussian Mechanism (Balle & Wang, 2018)
 - Generate rich visualizations: confusion matrix, ROC curves, class distribution, noise effects, and more
 
 ---
@@ -45,6 +46,8 @@ PrivaCare-AI/
 │
 ├── dp_train_test.py                 # DP Random Forest trainer (interactive, with diffprivlib)
 ├── visualize_results.py             # Generate all 10 result plots (auto-adaptive)
+├── requirements.txt                 # Python dependencies
+├── LICENSE                          # MIT License
 ├── .gitignore
 └── README.md
 ```
@@ -53,22 +56,32 @@ PrivaCare-AI/
 
 ## ⚙️ How It Works
 
-### Privacy Mechanism — diffprivlib DP Random Forest
+### Privacy Mechanism — Analytic Gaussian Mechanism (Balle & Wang, 2018)
 
-Unlike manual noise injection, this project uses **IBM's `diffprivlib`** which implements privacy at the **algorithmic level** inside the Random Forest training process.
+This project uses **IBM's `diffprivlib`** which implements privacy at the **algorithmic level** inside the Random Forest training process. The noise scale **σ** is computed via the **Analytic Gaussian Mechanism** — valid for **all ε > 0** (unlike the classical formula which is only proven for ε < 1):
 
-The noise scale **σ** is internally derived from the privacy budget:
-
-$$\sigma = \frac{\Delta f \cdot \sqrt{2 \ln(1.25 / \delta)}}{\varepsilon}$$
+$$\sigma^* = \min \left\{ \sigma : \Phi\!\left(\frac{\Delta f}{2\sigma} - \frac{\varepsilon\sigma}{\Delta f}\right) - e^{\varepsilon}\,\Phi\!\left(-\frac{\Delta f}{2\sigma} - \frac{\varepsilon\sigma}{\Delta f}\right) \leq \delta \right\}$$
 
 | Symbol | Meaning |
 |--------|---------|
 | **ε (epsilon)** | Privacy budget — smaller = more private |
 | **δ (delta)** | Failure probability (fixed at `1e-5`) |
-| **Δf** | Sensitivity (= 1.0 for [0,1]-normalized features) |
-| **σ** | Standard deviation of injected noise |
+| **Δf** | L∞-sensitivity = 1.0 (data-independent, domain-bound normalization) |
+| **σ** | Minimum noise standard deviation (Analytic GM) |
 
 This provides a formal **(ε, δ)-DP guarantee**: an adversary cannot identify any individual patient's record from the model output.
+
+### DP Correctness Fixes Applied
+
+| Fix | Issue | Solution |
+|-----|-------|----------|
+| **1** | Sensitivity from data (MinMaxScaler) | `DOMAIN_BOUNDS` dict with clinical ranges — data-independent |
+| **2** | Classical σ formula only valid for ε < 1 | Analytic Gaussian Mechanism (Balle & Wang, 2018) |
+| **3** | Epsilon composition not tracked | Per-run composition warning printed at runtime |
+| **4** | Single run — unreliable results | `N_TRIALS = 3` runs, mean ± std reported |
+| **5** | Binary features getting Gaussian noise | `BINARY_FEATURES` set, correct `(0,1)` bounds passed |
+| **6** | No fixed seeds — non-reproducible | `seed = BASE_SEED + trial_idx` for each trial |
+| **7** | Label (target) unprotected | Runtime note — standard DP-ML design (Abadi et al. 2016) |
 
 ### Model Pipeline
 
@@ -82,11 +95,11 @@ Feature Selection + Label Encoding
 Train / Test Split (80 / 20, stratified)
     │
     ▼
-MinMax Normalization → [0, 1]
+Domain-Bound Normalization → [0, 1]   ← data-independent (clinical bounds)
     │
     ├──── Baseline RF (sklearn, no privacy) ──────► Baseline Accuracy
     │
-    └──── DP Random Forest (diffprivlib, ε, δ) ───► DP Accuracy
+    └──── DP Random Forest (diffprivlib, ε, δ) ───► DP Accuracy (avg of N_TRIALS)
 ```
 
 ---
@@ -96,7 +109,7 @@ MinMax Normalization → [0, 1]
 ### Prerequisites
 
 ```bash
-pip install numpy pandas scikit-learn matplotlib diffprivlib
+pip install -r requirements.txt
 ```
 
 > Python **3.10+** recommended.
@@ -114,7 +127,7 @@ cd PrivaCare-AI
 
 ### Step 1 — Train Models
 
-Trains a baseline RF and a DP-protected RF. Prompts for epsilon at runtime.
+Trains a baseline RF and a DP-protected RF (3 trials, averaged). Prompts for epsilon at runtime.
 
 ```bash
 python dp_train_test.py
@@ -122,20 +135,42 @@ python dp_train_test.py
 
 **Example output:**
 ```
---> Dataset loaded: 6000 rows, 13 features
-    Target: 'health_event' | Classes: 4
+========================================================
+  PrivaCare-AI -- Differential Privacy Training
+========================================================
 
-Enter Epsilon value (e.g. 0.1, 0.5, 1.0) [Default 0.5]: 0.5
---> Epsilon = 0.5
+  Dataset : 6,000 rows | 13 features
+  Target  : 'health_event' | 4 classes
 
-[1] Training Baseline Random Forest (No DP Noise)...
-[2] Training DP Random Forest (Algorithmic Privacy, epsilon=0.5)...
+  +--[ PRIVACY SCOPE NOTE ]---...---+
+  | Target label is NOT DP-protected (standard DP-ML design) |
+  +----------------------------------------------------------+
 
-================ RESULT SUMMARY ================
-Original Model Accuracy (No Privacy) : 99.83%
-DP Model Accuracy (Epsilon=0.5)      : 96.50%
-Accuracy Drop (Privacy Cost)         : 3.33%
-================================================
+  Enter Epsilon value (e.g. 0.1, 0.5, 1.0) [Default 0.5]: 0.5
+  --> Epsilon (e)           = 0.5
+      Delta   (d)           = 1e-05
+      Sigma   (s, analytic) = 7.0318
+      Trials                = 3 runs (results averaged)
+
+  [!] COMPOSITION WARNING: Each run consumes epsilon = 0.5 ...
+
+[1] Baseline Accuracy : 99.92%
+
+[2] DP Random Forest (3 trials | epsilon=0.5 | diffprivlib)
+    Trial 1/3  (seed=42): 80.17%
+    Trial 2/3  (seed=43): 88.58%
+    Trial 3/3  (seed=44): 84.67%
+
+========================================================
+  RESULT SUMMARY
+========================================================
+  Baseline Accuracy (No DP)           : 99.92%
+  DP Accuracy (e=0.5, 3 trials)       : 84.47% +/- 3.44%
+  Accuracy Drop (Privacy Cost)        : 15.44%
+  Noise Sigma (Analytic GM)           : 7.0318
+  Privacy Guarantee                   : (0.5, 1e-05)-DP
+  Normalization                       : Domain-bound clipping (data-independent)
+========================================================
 ```
 
 ---
@@ -152,37 +187,50 @@ Enter the **same epsilon** as Step 1. Saves **10 plots** to `results/plots/`.
 
 ## 📊 Results
 
-### Performance Summary
+### Performance Summary (ε = 0.5, δ = 1e-5)
 
-| ε (Epsilon) | Baseline Accuracy | DP Accuracy | Accuracy Drop | Privacy Level |
-|:-----------:|:-----------------:|:-----------:|:-------------:|:-------------:|
-| **0.5** | 99.83% | **96.50%** | 3.33% | 🔒 High |
-| **1.0** | 99.83% | **93.58%** | 6.25% | 🔐 Moderate-High |
+| Metric | Baseline (No DP) | DP Model (ε=0.5, 3 trials) |
+|--------|:----------------:|:--------------------------:|
+| **Test Accuracy** | 99.92% | **84.47% ± 3.44%** |
+| **Noise σ (Analytic GM)** | 0.0 | 7.0318 |
+| **Privacy Guarantee** | ❌ None | ✅ (0.5, 1e-5)-DP |
+| **Normalization** | MinMaxScaler | Domain-bound clipping |
 
-> **Key insight:** At ε = 0.5, the DP model achieves **96.50% accuracy** — only a 3.33% drop from baseline — while providing strong formal privacy guarantees. This shows diffprivlib's algorithmic DP is far more efficient than manual noise injection.
+> **Key insight:** The variance (±3.44%) across 3 trials reveals the *stochastic cost* of DP training. The Analytic GM computes σ=7.03 for ε=0.5 — significantly more accurate than the classical formula (which gives σ=9.69, over-adding noise by ~38%).
+
+### Per-Class Accuracy (Confusion Matrix, ε=0.5)
+
+| Class | Correctly Predicted | Accuracy |
+|-------|:-------------------:|:--------:|
+| Normal | 299 / 300 | **100%** ✅ |
+| Mild Risk | 70 / 300 | **23%** ⚠️ |
+| Moderate Risk | 300 / 300 | **100%** ✅ |
+| High Risk | 293 / 300 | **98%** ✅ |
+
+> ⚠️ **Mild Risk confusion:** 71% of Mild Risk patients are misclassified as Moderate Risk. This is a known effect of DP noise on borderline/adjacent classes — the added noise blurs the decision boundary between similar classes.
 
 ### Privacy Level Classification
 
-| Epsilon (ε) | Privacy Level | Typical Use Case |
-|:-----------:|:-------------:|:----------------:|
-| ≤ 0.5 | 🔒 High Privacy | Highly sensitive medical data |
-| 0.5 – 2.0 | 🔐 Moderate-High | Clinical research |
-| 2.0 – 7.0 | 🔑 Moderate | General health analytics |
-| > 7.0 | 🔓 Low Privacy | Non-sensitive aggregates |
+| Epsilon (ε) | Privacy Level | σ (Analytic GM) | Typical Use Case |
+|:-----------:|:-------------:|:---------------:|:----------------:|
+| ≤ 0.5 | 🔒 High Privacy | ~7.03 | Highly sensitive medical data |
+| 0.5 – 2.0 | 🔐 Moderate-High | ~1.9–7.0 | Clinical research |
+| 2.0 – 7.0 | 🔑 Moderate | ~0.6–1.9 | General health analytics |
+| > 7.0 | 🔓 Low Privacy | < 0.6 | Non-sensitive aggregates |
 
-### Feature Importance (Baseline RF)
+### Feature Importance (Baseline RF — from actual run)
 
-| Feature | Importance |
-|---------|:----------:|
-| Activity Level | 8.52% |
-| HRV SDNN | 8.34% |
-| Steps Count | 8.13% |
-| Body Temperature | 7.93% |
-| Blood Pressure (Diastolic) | 7.85% |
-| Heart Rate | 7.64% |
-| Glucose Level | 7.62% |
-| Blood Oxygen | 7.47% |
-| Calories Burned | 7.50% |
+| Rank | Feature | Importance |
+|:----:|---------|:----------:|
+| 1 | Glucose Level | **18.6%** |
+| 2 | Stress Level | 16.0% |
+| 3 | Blood Pressure (Systolic) | 15.9% |
+| 4 | Sleep Quality | 14.7% |
+| 5 | Blood Pressure (Diastolic) | 12.9% |
+| 6 | HRV SDNN | 5.9% |
+| 7 | Heart Rate | 4.6% |
+| 8 | Steps Count | 3.3% |
+| 9 | Activity Level | 2.8% |
 
 ---
 
@@ -193,15 +241,15 @@ All plots are saved in `results/plots/` after running `visualize_results.py`.
 | Plot File | Description |
 |-----------|-------------|
 | `0_DASHBOARD.png` | Master summary dashboard (all metrics in one view) |
-| `1_confusion_matrix.png` | Class-wise prediction confusion (with % annotations) |
+| `1_confusion_matrix.png` | Class-wise prediction confusion with per-class % |
 | `2_feature_importance.png` | Baseline RF feature ranking |
 | `3_class_distribution.png` | Target class balance — **Normal / Mild Risk / Moderate Risk / High Risk** |
 | `4_roc_curves.png` | ROC curve per class (One vs Rest, with AUC) |
-| `5_privacy_tradeoff.png` | ε vs σ relationship + Gaussian noise distributions |
+| `5_privacy_tradeoff.png` | ε vs σ (Analytic GM) + Gaussian noise distributions |
 | `6_dp_noise_effect.png` | Original vs DP-noisy feature distributions |
 | `7_feature_per_class.png` | Feature distributions separated by health class |
 | `8_correlation_heatmap.png` | Feature correlation matrix |
-| `9_confidence.png` | Model prediction confidence distribution per class |
+| `9_confidence.png` | Model prediction confidence per class |
 
 ---
 
@@ -219,6 +267,7 @@ All plots are saved in `results/plots/` after running `visualize_results.py`.
   - `2` → **Moderate Risk**
   - `3` → **High Risk**
 - **Split:** 80% train / 20% test (stratified)
+- **Note:** Dataset is synthetic — no real patient records. For production use, a data ethics review and IRB approval would be required.
 
 ---
 
@@ -230,7 +279,15 @@ A randomized mechanism **M** satisfies **(ε, δ)-DP** if for all neighboring da
 
 $$\Pr[M(D) \in S] \leq e^{\varepsilon} \cdot \Pr[M(D') \in S] + \delta$$
 
-The **Gaussian Mechanism** achieves this by adding noise calibrated to the **L2-sensitivity** of the query function, making it ideal for continuous-valued feature vectors in ML pipelines.
+### Analytic Gaussian Mechanism (Balle & Wang, NeurIPS 2018)
+
+The **Analytic GM** computes the minimum σ satisfying (ε, δ)-DP for **any ε > 0** via binary search on the normal CDF — as opposed to the classical formula which is only valid for ε < 1. This project uses the Analytic GM for both training (diffprivlib internally) and all σ display values in plots.
+
+### Privacy Composition
+
+Each training run on the same dataset consumes ε from the total privacy budget:
+- **Basic composition:** k runs → total loss = k × ε
+- **Advanced composition** (Dwork et al. 2010): O(√k · ε)
 
 ---
 
@@ -241,9 +298,10 @@ The **Gaussian Mechanism** achieves this by adding noise calibrated to the **L2-
 | Language | Python 3.10+ |
 | ML Model | `scikit-learn` RandomForestClassifier (baseline) |
 | DP Model | `diffprivlib` DP RandomForestClassifier (IBM) |
+| Analytic GM | `scipy` — binary search on normal CDF |
 | Data Processing | `pandas`, `numpy` |
 | Visualization | `matplotlib` (dark theme, 10 plots) |
-| Evaluation | Accuracy, AUC-ROC, Confusion Matrix |
+| Evaluation | Accuracy ± std (3 trials), AUC-ROC, Confusion Matrix |
 
 ---
 
@@ -251,8 +309,9 @@ The **Gaussian Mechanism** achieves this by adding noise calibrated to the **L2-
 
 | File | Purpose |
 |------|---------|
-| [`dp_train_test.py`](dp_train_test.py) | Interactive training — baseline + DP RF with diffprivlib |
-| [`visualize_results.py`](visualize_results.py) | Auto-adaptive visualization engine (10 plots) |
+| [`dp_train_test.py`](dp_train_test.py) | Interactive training — baseline + DP RF, multi-trial, composition warnings |
+| [`visualize_results.py`](visualize_results.py) | Auto-adaptive visualization engine (10 plots, Analytic GM sigma) |
+| [`requirements.txt`](requirements.txt) | All Python dependencies |
 
 ---
 

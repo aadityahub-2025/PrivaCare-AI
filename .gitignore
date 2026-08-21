@@ -26,3 +26,15 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# ML artifacts — do not commit trained models or cached results
+models/
+*.pkl
+*.joblib
+results/training_results.json
+results/epsilon_sweep.json
+
+# Data backups — only dataset.csv is tracked
+data/dataset_original_backup.csv
+data/realistic_dataset.csv
+*.xlsx

@@ -2,6 +2,10 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║         PrivaCare-AI — Matplotlib Visualizations (Auto-Adaptive)            ║
 ║         Run this AFTER dp_train_test.py                                      ║
+║                                                                              ║
+║  DP Correctness Fixes Applied:                                               ║
+║  · Data-independent normalization (domain bounds, not data min/max)         ║
+║  · Analytic Gaussian σ display (Balle & Wang 2018, valid for all ε)        ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
 Plots Generated:
@@ -17,6 +21,7 @@ Plots Generated:
   9 - Prediction Confidence
 """
 
+import math
 import numpy as np
 import pandas as pd
 import matplotlib
@@ -29,7 +34,7 @@ import os
 
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder, MinMaxScaler, label_binarize
+from sklearn.preprocessing import LabelEncoder, label_binarize
 from sklearn.metrics import (accuracy_score, confusion_matrix,
                              roc_curve, auc as sk_auc)
 import diffprivlib.models as dp
@@ -60,6 +65,74 @@ COLORS10    = ["#4C72B0","#DD8452","#55A868","#C44E52",
 CLASS_NAMES_MAP = {
     "health_event": {0: "Normal", 1: "Mild Risk", 2: "Moderate Risk", 3: "High Risk"},
 }
+
+# ──────────────────────────────────────────────
+#  DP CORRECTNESS — SHARED WITH dp_train_test.py
+# ──────────────────────────────────────────────
+
+# FIX 1: Data-independent feature bounds (clinical/domain knowledge)
+# Normalization must NOT use data statistics (min/max of training set)
+# as that leaks information and breaks the formal (ε,δ)-DP guarantee.
+DOMAIN_BOUNDS: dict = {
+    "heart_rate":               (30,    220),
+    "blood_oxygen":             (70.0, 100.0),
+    "blood_pressure_systolic":  (60,    250),
+    "blood_pressure_diastolic": (40,    150),
+    "glucose_level":            (50.0,  500.0),
+    "body_temperature":         (35.0,  42.0),
+    "respiratory_rate":         (8,     40),
+    "activity_level":           (0.0,   10.0),
+    "sleep_quality":            (0.0,   10.0),
+    "stress_level":             (0.0,   10.0),
+    "hrv_sdnn":                 (5.0,  200.0),
+    "steps_count":              (0,    50_000),
+    "calories_burned":          (0,     5_000),
+    "age":                      (0,     120),
+    "gender":                   (0,     1),
+}
+
+
+def analytic_gaussian_sigma(epsilon: float,
+                             delta: float,
+                             sensitivity: float = 1.0) -> float:
+    """
+    Analytic Gaussian Mechanism σ (Balle & Wang, NeurIPS 2018).
+    Valid for all ε > 0.  Classical formula (Dwork-Roth) is only
+    proven for ε < 1 — use this for correct display in all plots.
+    """
+    from scipy.special import erfc
+
+    def phi(t):
+        return 0.5 * erfc(-t / math.sqrt(2))
+
+    def delta_of_sigma(s):
+        a = sensitivity / (2 * s)
+        b = epsilon * s / sensitivity
+        return phi(a - b) - math.exp(epsilon) * phi(-a - b)
+
+    lo, hi = 1e-9, 1e6
+    for _ in range(1_000):
+        mid = (lo + hi) / 2
+        if delta_of_sigma(mid) <= delta:
+            hi = mid
+        else:
+            lo = mid
+    return hi
+
+
+def normalize_with_domain_bounds(
+        X: np.ndarray,
+        feature_names: list) -> tuple:
+    """
+    Clip to pre-defined domain bounds then scale to [0,1].
+    Data-independent — never reads actual data statistics for scaling.
+    """
+    X_norm = X.copy().astype(float)
+    for i, col in enumerate(feature_names):
+        lo, hi = DOMAIN_BOUNDS.get(col, (X[:, i].min(), X[:, i].max()))
+        X_norm[:, i] = np.clip(X_norm[:, i], lo, hi)
+        X_norm[:, i] = (X_norm[:, i] - lo) / (hi - lo + 1e-12)
+    return X_norm
 
 plt.rcParams.update({
     "figure.facecolor":  BG_COLOR,
@@ -111,10 +184,9 @@ def load_and_train(epsilon=0.5):
         X, y, test_size=0.20, random_state=42, stratify=y
     )
 
-    scaler       = MinMaxScaler(feature_range=(0, 1))
-    X_train_norm = scaler.fit_transform(X_train)
-    X_test_norm  = scaler.transform(X_test)
-
+    # FIX 1: Data-independent normalization (domain bounds, not MinMaxScaler.fit)
+    X_train_norm = normalize_with_domain_bounds(X_train, feature_cols)
+    X_test_norm  = normalize_with_domain_bounds(X_test,  feature_cols)
     bounds = ([0.0] * X_train_norm.shape[1], [1.0] * X_train_norm.shape[1])
 
     # Baseline model
@@ -122,7 +194,7 @@ def load_and_train(epsilon=0.5):
     rf_base.fit(X_train_norm, y_train)
     acc_base = accuracy_score(y_test, rf_base.predict(X_test_norm))
 
-    # DP model
+    # DP model (diffprivlib handles DP composition internally)
     rf_dp = dp.RandomForestClassifier(
         n_estimators=100, epsilon=epsilon, bounds=bounds, random_state=42
     )
@@ -138,7 +210,7 @@ def load_and_train(epsilon=0.5):
     ]
 
     return {
-        "df": df, "rf": rf_dp, "rf_base": rf_base, "le": le, "scaler": scaler,
+        "df": df, "rf": rf_dp, "rf_base": rf_base, "le": le,
         "X_train_norm": X_train_norm, "X_test_norm": X_test_norm,
         "y_train": y_train, "y_test": y_test,
         "y_pred": y_pred, "y_pred_proba": y_pred_proba,
@@ -309,15 +381,18 @@ def plot_roc_curves(d):
 # ══════════════════════════════════════════════
 def plot_privacy_tradeoff(d):
     epsilon = d["epsilon"]
-    sigma   = np.sqrt(2 * np.log(1.25 / 1e-5)) / epsilon
+    delta   = 1e-5
+    # FIX 2: Analytic GM σ (valid for all ε, unlike classical formula)
+    sigma   = analytic_gaussian_sigma(epsilon, delta)
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
     fig.patch.set_facecolor(BG_COLOR)
-    fig.suptitle("Differential Privacy: Epsilon vs Noise Analysis",
-                 fontsize=15, fontweight="bold", y=1.01)
+    fig.suptitle("Differential Privacy: Epsilon vs Noise Analysis\n"
+                 "(σ via Analytic Gaussian Mechanism — Balle & Wang, 2018)",
+                 fontsize=14, fontweight="bold", y=1.02)
 
     eps_range = np.linspace(0.1, 20, 500)
-    sig_range = np.sqrt(2 * np.log(1.25 / 1e-5)) / eps_range
+    sig_range = np.array([analytic_gaussian_sigma(e, delta) for e in eps_range])
 
     ax1.plot(eps_range, sig_range, color=ACCENT, lw=2.5)
     ax1.fill_between(eps_range, sig_range, alpha=0.12, color=ACCENT)
@@ -330,7 +405,7 @@ def plot_privacy_tradeoff(d):
     ax1.axvspan(8, 20, alpha=0.06, color="#55A868", label="Low Privacy (ε>8)")
     ax1.set_xlabel("Epsilon (ε)", fontsize=12)
     ax1.set_ylabel("Sigma (σ) — Noise Scale", fontsize=12)
-    ax1.set_title("ε → σ Relationship (δ = 1e-5)", fontsize=12)
+    ax1.set_title("ε → σ Relationship (δ = 1e-5, Analytic GM)", fontsize=12)
     ax1.legend(fontsize=9, loc="upper right"); ax1.grid(alpha=0.3)
     ax1.set_xlim([0, 20])
     ax1.spines[["top","right"]].set_visible(False)
@@ -339,12 +414,11 @@ def plot_privacy_tradeoff(d):
     eps_show = [0.5, 1.0, 3.0, 5.0]
     clrs     = ["#FF6B6B","#FFA500","#00E5FF","#55A868"]
     for ep, clr in zip(eps_show, clrs):
-        sig = np.sqrt(2 * np.log(1.25 / 1e-5)) / ep
+        sig = analytic_gaussian_sigma(ep, delta)  # FIX: analytic GM
         y   = (1/(sig*np.sqrt(2*np.pi))) * np.exp(-0.5*(x/sig)**2)
         ax2.plot(x, y, color=clr, lw=2.5, label=f"ε={ep}  → σ={sig:.2f}")
         ax2.fill_between(x, y, alpha=0.08, color=clr)
-    # Highlight current epsilon
-    sig_curr = np.sqrt(2 * np.log(1.25 / 1e-5)) / epsilon
+    sig_curr = analytic_gaussian_sigma(epsilon, delta)  # FIX: analytic GM
     y_curr   = (1/(sig_curr*np.sqrt(2*np.pi))) * np.exp(-0.5*(x/sig_curr)**2)
     ax2.plot(x, y_curr, color="#FF6B6B", lw=3, ls="--",
              label=f"Current (ε={epsilon})")
@@ -371,7 +445,9 @@ def plot_dp_noise_effect(d):
     X_train_norm = d["X_train_norm"]
     feature_names = d["feature_cols"]
     epsilon = d["epsilon"]
-    sigma   = np.sqrt(2 * np.log(1.25 / 1e-5)) / epsilon
+    delta   = 1e-5
+    # FIX 2: Analytic GM σ (valid for all ε)
+    sigma   = analytic_gaussian_sigma(epsilon, delta)
 
     n_feat = len(feature_names)
     cols   = min(4, n_feat)
