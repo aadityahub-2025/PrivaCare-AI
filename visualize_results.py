@@ -1,31 +1,38 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║         PrivaCare-AI — Matplotlib Visualizations (Auto-Adaptive)            ║
-║         Kisi bhi dataset ke saath kaam karta hai                             ║
+║         Run this AFTER dp_train_test.py                                      ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
-Yeh file chalao AFTER dp_train_test.py
-Automatically detect karta hai:
-  - Dataset columns
-  - Target column
-  - Number of classes
-  - Feature types
+Plots Generated:
+  0 - Master Dashboard
+  1 - Confusion Matrix
+  2 - Feature Importance
+  3 - Class Distribution
+  4 - ROC Curves (Multiclass)
+  5 - Privacy Tradeoff (ε vs σ)
+  6 - DP Noise Effect on Features
+  7 - Feature Distribution per Class
+  8 - Feature Correlation Heatmap
+  9 - Prediction Confidence
 """
 
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from matplotlib.colors import LinearSegmentedColormap
-import joblib
-import json
 import warnings
 import os
 
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder, MinMaxScaler
-from sklearn.metrics import confusion_matrix, roc_curve, auc
-from sklearn.preprocessing import label_binarize
+from sklearn.preprocessing import LabelEncoder, MinMaxScaler, label_binarize
+from sklearn.metrics import (accuracy_score, confusion_matrix,
+                             roc_curve, auc as sk_auc)
+import diffprivlib.models as dp
 
 warnings.filterwarnings("ignore")
 np.random.seed(42)
@@ -33,16 +40,12 @@ np.random.seed(42)
 # ──────────────────────────────────────────────
 #  PATHS
 # ──────────────────────────────────────────────
-DATA_PATH    = "data/dataset.csv"
-MODEL_PATH   = "models/dp_rf_model.pkl"
-SCALER_PATH  = "models/scaler.pkl"
-ENCODER_PATH = "models/label_encoder.pkl"
-RESULTS_PATH = "results/training_results.json"
-PLOTS_DIR    = "results/plots"
+DATA_PATH = "data/dataset.csv"
+PLOTS_DIR = "results/plots"
 os.makedirs(PLOTS_DIR, exist_ok=True)
 
 # ──────────────────────────────────────────────
-#  DARK THEME SETUP
+#  DARK THEME
 # ──────────────────────────────────────────────
 BG_COLOR    = "#0F1117"
 PANEL_COLOR = "#1A1D2E"
@@ -51,6 +54,12 @@ TEXT_COLOR  = "#E8EAF6"
 ACCENT      = "#00E5FF"
 COLORS10    = ["#4C72B0","#DD8452","#55A868","#C44E52",
                "#8172B3","#937860","#DA8BC3","#8C8C8C","#CCB974","#64B5CD"]
+
+# Manually define class names for integer-encoded targets
+# (0→Normal, 1→Mild Risk, 2→Moderate Risk, 3→High Risk)
+CLASS_NAMES_MAP = {
+    "health_event": {0: "Normal", 1: "Mild Risk", 2: "Moderate Risk", 3: "High Risk"},
+}
 
 plt.rcParams.update({
     "figure.facecolor":  BG_COLOR,
@@ -71,19 +80,10 @@ plt.rcParams.update({
 
 
 # ══════════════════════════════════════════════
-#  DATA LOAD (Auto-detect columns)
+#  DATA LOAD & MODEL TRAIN
 # ══════════════════════════════════════════════
-def load_data():
+def load_and_train(epsilon=0.5):
     df = pd.read_csv(DATA_PATH)
-
-    # Convert numerics
-    for col in df.columns:
-        try:
-            converted = pd.to_numeric(df[col], errors='coerce')
-            if converted.notna().mean() > 0.8:
-                df[col] = converted
-        except Exception:
-            pass
 
     # Auto-detect target
     if "health_event" in df.columns:
@@ -97,43 +97,64 @@ def load_data():
     if "gender" in df.columns and df["gender"].dtype == object:
         df["gender"] = (df["gender"].str.strip().str.lower() == "male").astype(int)
 
-    # Drop ID/meta columns
-    always_drop = ["timestamp", "device_id", "patient_id", "is_synthetic", target_col]
-    drop_extra  = [c for c in df.columns
-                   if c not in always_drop and df[c].dtype == object and df[c].nunique() > 50]
-    all_drop = list(set(always_drop + drop_extra))
-
+    # Drop non-feature columns
+    drop_cols    = ["timestamp", "device_id", "patient_id", "is_synthetic", target_col]
     feature_cols = [c for c in df.columns
-                    if c not in all_drop and df[c].dtype in [np.float64, np.int64, float, int]]
+                    if c not in drop_cols
+                    and df[c].dtype in [np.float64, np.int64, float, int]]
 
-    X     = df[feature_cols].values.astype(float)
-    le    = joblib.load(ENCODER_PATH)
-    y_raw = df[target_col].values
-    y     = le.transform(y_raw)
+    X = df[feature_cols].values.astype(float)
+    le = LabelEncoder()
+    y  = le.fit_transform(df[target_col].values)
 
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.20, random_state=42, stratify=y
     )
 
-    scaler      = joblib.load(SCALER_PATH)
-    X_test_norm = scaler.transform(X_test)
-    X_train_norm= scaler.transform(X_train)
+    scaler       = MinMaxScaler(feature_range=(0, 1))
+    X_train_norm = scaler.fit_transform(X_train)
+    X_test_norm  = scaler.transform(X_test)
 
-    rf = joblib.load(MODEL_PATH)
-    y_pred       = rf.predict(X_test_norm)
-    y_pred_proba = rf.predict_proba(X_test_norm)
+    bounds = ([0.0] * X_train_norm.shape[1], [1.0] * X_train_norm.shape[1])
 
-    class_names = [str(c) for c in le.classes_]
+    # Baseline model
+    rf_base = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
+    rf_base.fit(X_train_norm, y_train)
+    acc_base = accuracy_score(y_test, rf_base.predict(X_test_norm))
 
-    return (df, rf, le, scaler, X_train_norm, X_test_norm,
-            y_test, y_pred, y_pred_proba, feature_cols, class_names, target_col)
+    # DP model
+    rf_dp = dp.RandomForestClassifier(
+        n_estimators=100, epsilon=epsilon, bounds=bounds, random_state=42
+    )
+    rf_dp.fit(X_train_norm, y_train)
+    y_pred       = rf_dp.predict(X_test_norm)
+    y_pred_proba = rf_dp.predict_proba(X_test_norm)
+    acc_dp       = accuracy_score(y_test, y_pred)
+
+    # Use custom name map if defined, else fall back to LabelEncoder classes
+    name_map = CLASS_NAMES_MAP.get(target_col, {})
+    class_names = [
+        name_map.get(int(c), str(c)) for c in le.classes_
+    ]
+
+    return {
+        "df": df, "rf": rf_dp, "rf_base": rf_base, "le": le, "scaler": scaler,
+        "X_train_norm": X_train_norm, "X_test_norm": X_test_norm,
+        "y_train": y_train, "y_test": y_test,
+        "y_pred": y_pred, "y_pred_proba": y_pred_proba,
+        "feature_cols": feature_cols, "class_names": class_names,
+        "target_col": target_col, "epsilon": epsilon,
+        "acc_base": acc_base, "acc_dp": acc_dp,
+    }
 
 
 # ══════════════════════════════════════════════
 #  PLOT 1: CONFUSION MATRIX
 # ══════════════════════════════════════════════
-def plot_confusion_matrix(y_test, y_pred, class_names):
-    fig, ax = plt.subplots(figsize=(max(7, len(class_names)*2), max(6, len(class_names)*2)))
+def plot_confusion_matrix(d):
+    y_test, y_pred, class_names = d["y_test"], d["y_pred"], d["class_names"]
+    n = len(class_names)
+    fig, ax = plt.subplots(figsize=(max(7, n*2), max(6, n*2)))
     fig.patch.set_facecolor(BG_COLOR)
 
     cm      = confusion_matrix(y_test, y_pred)
@@ -141,18 +162,17 @@ def plot_confusion_matrix(y_test, y_pred, class_names):
     cmap    = LinearSegmentedColormap.from_list("dp", [PANEL_COLOR, "#4C72B0", ACCENT])
     ax.imshow(cm_pct, cmap=cmap, vmin=0, vmax=100)
 
-    ax.set_xticks(range(len(class_names)))
-    ax.set_yticks(range(len(class_names)))
+    ax.set_xticks(range(n)); ax.set_yticks(range(n))
     ax.set_xticklabels(class_names, fontsize=11)
     ax.set_yticklabels(class_names, fontsize=11)
     ax.set_xlabel("Predicted", fontsize=12, labelpad=8)
     ax.set_ylabel("Actual",    fontsize=12, labelpad=8)
-    ax.set_title(f"Confusion Matrix ({len(class_names)} Classes)\nDP + Random Forest",
+    ax.set_title(f"Confusion Matrix ({n} Classes)\nDP Random Forest  ε={d['epsilon']}",
                  fontsize=14, fontweight="bold", pad=12)
 
-    for i in range(len(class_names)):
-        for j in range(len(class_names)):
-            color = "white" if cm_pct[i,j] < 55 else BG_COLOR
+    for i in range(n):
+        for j in range(n):
+            color = "white" if cm_pct[i, j] < 55 else BG_COLOR
             ax.text(j, i, f"{cm[i,j]}\n({cm_pct[i,j]:.0f}%)",
                     ha="center", va="center", fontsize=10, fontweight="bold", color=color)
 
@@ -166,15 +186,19 @@ def plot_confusion_matrix(y_test, y_pred, class_names):
 # ══════════════════════════════════════════════
 #  PLOT 2: FEATURE IMPORTANCE
 # ══════════════════════════════════════════════
-def plot_feature_importance(rf, feature_names):
+def plot_feature_importance(d):
+    # Use baseline RF — diffprivlib DP RF returns NaN feature_importances_
+    rf, feature_names = d["rf_base"], d["feature_cols"]
     fig, ax = plt.subplots(figsize=(11, max(5, len(feature_names) * 0.55)))
     fig.patch.set_facecolor(BG_COLOR)
 
-    imp = rf.feature_importances_
-    idx = np.argsort(imp)
-    sf  = [feature_names[i] for i in idx]
-    si  = imp[idx]
-    clrs= plt.cm.Blues(np.linspace(0.3, 1.0, len(sf)))
+    imp  = rf.feature_importances_
+    # Guard against NaN/Inf
+    imp  = np.nan_to_num(imp, nan=0.0, posinf=0.0, neginf=0.0)
+    idx  = np.argsort(imp)
+    sf   = [feature_names[i] for i in idx]
+    si   = imp[idx]
+    clrs = plt.cm.Blues(np.linspace(0.3, 1.0, len(sf)))
 
     bars = ax.barh(sf, si * 100, color=clrs, edgecolor=GRID_COLOR, height=0.65)
     for bar, val in zip(bars, si * 100):
@@ -182,9 +206,10 @@ def plot_feature_importance(rf, feature_names):
                 f"{val:.2f}%", va="center", fontsize=9.5, color=TEXT_COLOR)
 
     ax.set_xlabel("Importance (%)", fontsize=12)
-    ax.set_title("Feature Importance (Random Forest — DP Trained)",
+    ax.set_title(f"Feature Importance — Baseline RF (eps={d['epsilon']})",
                  fontsize=14, fontweight="bold", pad=12)
-    ax.set_xlim(0, max(si*100) + 3)
+    max_val = float(np.max(si * 100)) if np.any(si > 0) else 10.0
+    ax.set_xlim(0, max_val + 3)
     ax.grid(axis="x", alpha=0.3)
     ax.spines[["top","right"]].set_visible(False)
 
@@ -196,20 +221,23 @@ def plot_feature_importance(rf, feature_names):
 
 
 # ══════════════════════════════════════════════
-#  PLOT 3: TARGET CLASS DISTRIBUTION
+#  PLOT 3: CLASS DISTRIBUTION
 # ══════════════════════════════════════════════
-def plot_class_distribution(df, target_col, class_names):
+def plot_class_distribution(d):
+    df, target_col, class_names = d["df"], d["target_col"], d["class_names"]
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
     fig.patch.set_facecolor(BG_COLOR)
     fig.suptitle(f"Class Distribution — '{target_col}'",
                  fontsize=15, fontweight="bold", y=1.01)
 
     counts = df[target_col].value_counts().sort_index()
-    labels = [str(c) for c in counts.index]
+    # Map raw integer class values → meaningful names via CLASS_NAMES_MAP
+    name_map = CLASS_NAMES_MAP.get(target_col, {})
+    labels = [name_map.get(int(c), str(c)) for c in counts.index]
     values = counts.values
     colors = COLORS10[:len(labels)]
 
-    # Donut pie
+    # ── Pie Chart ──
     wedge_props = dict(width=0.55, edgecolor=BG_COLOR, linewidth=2)
     _, texts, autotexts = ax1.pie(values, labels=labels, autopct="%1.1f%%",
                                    colors=colors, wedgeprops=wedge_props,
@@ -220,15 +248,18 @@ def plot_class_distribution(df, target_col, class_names):
     ax1.set_title("Proportion", fontsize=13, pad=10)
     ax1.set_facecolor(BG_COLOR)
 
-    # Bar chart
-    bars = ax2.bar(labels, values, color=colors, edgecolor=GRID_COLOR, width=0.6)
+    # ── Bar Chart ──
+    x_pos = range(len(labels))
+    bars = ax2.bar(x_pos, values, color=colors, edgecolor=GRID_COLOR, width=0.6)
     for bar, val in zip(bars, values):
         ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(values)*0.01,
                  f"{val:,}", ha="center", fontsize=12, fontweight="bold")
+    ax2.set_xticks(list(x_pos))
+    ax2.set_xticklabels(labels, fontsize=11, rotation=15, ha="right")
     ax2.set_ylabel("Count", fontsize=12)
     ax2.set_xlabel(f"Class ({target_col})", fontsize=12)
     ax2.set_title("Records per Class", fontsize=13, pad=10)
-    ax2.set_ylim(0, max(values) * 1.15)
+    ax2.set_ylim(0, max(values) * 1.18)
     ax2.grid(axis="y", alpha=0.3)
     ax2.spines[["top","right"]].set_visible(False)
 
@@ -242,7 +273,8 @@ def plot_class_distribution(df, target_col, class_names):
 # ══════════════════════════════════════════════
 #  PLOT 4: ROC CURVES (Multiclass)
 # ══════════════════════════════════════════════
-def plot_roc_curves(y_test, y_pred_proba, class_names):
+def plot_roc_curves(d):
+    y_test, y_pred_proba, class_names = d["y_test"], d["y_pred_proba"], d["class_names"]
     n = len(class_names)
     fig, ax = plt.subplots(figsize=(9, 7))
     fig.patch.set_facecolor(BG_COLOR)
@@ -250,7 +282,7 @@ def plot_roc_curves(y_test, y_pred_proba, class_names):
     y_bin = label_binarize(y_test, classes=range(n))
     for i, (name, color) in enumerate(zip(class_names, COLORS10)):
         fpr, tpr, _ = roc_curve(y_bin[:, i], y_pred_proba[:, i])
-        roc_val     = auc(fpr, tpr)
+        roc_val     = sk_auc(fpr, tpr)
         ax.plot(fpr, tpr, color=color, lw=2.5,
                 label=f"Class {name}  (AUC = {roc_val:.4f})")
         ax.fill_between(fpr, tpr, alpha=0.07, color=color)
@@ -258,7 +290,7 @@ def plot_roc_curves(y_test, y_pred_proba, class_names):
     ax.plot([0,1],[0,1],"w--", lw=1.5, alpha=0.5, label="Random")
     ax.set_xlabel("False Positive Rate", fontsize=12)
     ax.set_ylabel("True Positive Rate",  fontsize=12)
-    ax.set_title("ROC Curves — Multiclass (One vs Rest)\nDP + Random Forest",
+    ax.set_title(f"ROC Curves — Multiclass (One vs Rest)\nDP Random Forest  ε={d['epsilon']}",
                  fontsize=14, fontweight="bold", pad=12)
     ax.legend(fontsize=10, loc="lower right")
     ax.grid(alpha=0.3)
@@ -275,15 +307,9 @@ def plot_roc_curves(y_test, y_pred_proba, class_names):
 # ══════════════════════════════════════════════
 #  PLOT 5: PRIVACY TRADEOFF (ε vs σ)
 # ══════════════════════════════════════════════
-def plot_privacy_tradeoff(current_epsilon=5.0):
-    # Load actual epsilon from results if available
-    try:
-        with open(RESULTS_PATH) as f:
-            res = json.load(f)
-        current_epsilon = res["privacy"]["epsilon"]
-        current_sigma   = res["privacy"]["sigma"]
-    except Exception:
-        current_sigma = np.sqrt(2 * np.log(1.25 / 1e-5)) / current_epsilon
+def plot_privacy_tradeoff(d):
+    epsilon = d["epsilon"]
+    sigma   = np.sqrt(2 * np.log(1.25 / 1e-5)) / epsilon
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
     fig.patch.set_facecolor(BG_COLOR)
@@ -293,19 +319,15 @@ def plot_privacy_tradeoff(current_epsilon=5.0):
     eps_range = np.linspace(0.1, 20, 500)
     sig_range = np.sqrt(2 * np.log(1.25 / 1e-5)) / eps_range
 
-    # Left: ε vs σ
     ax1.plot(eps_range, sig_range, color=ACCENT, lw=2.5)
     ax1.fill_between(eps_range, sig_range, alpha=0.12, color=ACCENT)
-    ax1.scatter([current_epsilon], [current_sigma],
-                color="#FF6B6B", s=130, zorder=5,
-                label=f"Current Model\nε={current_epsilon}, σ={current_sigma:.3f}")
-    ax1.axvline(current_epsilon, color="#FF6B6B", ls="--", alpha=0.5, lw=1.5)
-    ax1.axhline(current_sigma,   color="#FF6B6B", ls="--", alpha=0.5, lw=1.5)
-
+    ax1.scatter([epsilon], [sigma], color="#FF6B6B", s=130, zorder=5,
+                label=f"Current Model\nε={epsilon}, σ={sigma:.3f}")
+    ax1.axvline(epsilon, color="#FF6B6B", ls="--", alpha=0.5, lw=1.5)
+    ax1.axhline(sigma,   color="#FF6B6B", ls="--", alpha=0.5, lw=1.5)
     ax1.axvspan(0,  2, alpha=0.06, color="#FF6B6B", label="High Privacy (ε<2)")
     ax1.axvspan(2,  8, alpha=0.06, color="#FFA500", label="Moderate (2–8)")
     ax1.axvspan(8, 20, alpha=0.06, color="#55A868", label="Low Privacy (ε>8)")
-
     ax1.set_xlabel("Epsilon (ε)", fontsize=12)
     ax1.set_ylabel("Sigma (σ) — Noise Scale", fontsize=12)
     ax1.set_title("ε → σ Relationship (δ = 1e-5)", fontsize=12)
@@ -313,26 +335,23 @@ def plot_privacy_tradeoff(current_epsilon=5.0):
     ax1.set_xlim([0, 20])
     ax1.spines[["top","right"]].set_visible(False)
 
-    # Right: Gaussian noise distributions at different epsilons
     x = np.linspace(-6, 6, 1000)
-    eps_show = [1.0, 3.0, 5.0, 10.0]
+    eps_show = [0.5, 1.0, 3.0, 5.0]
     clrs     = ["#FF6B6B","#FFA500","#00E5FF","#55A868"]
     for ep, clr in zip(eps_show, clrs):
         sig = np.sqrt(2 * np.log(1.25 / 1e-5)) / ep
         y   = (1/(sig*np.sqrt(2*np.pi))) * np.exp(-0.5*(x/sig)**2)
-        ax2.plot(x, y, color=clr, lw=2.5, label=f"ε={ep:.0f}  → σ={sig:.2f}")
+        ax2.plot(x, y, color=clr, lw=2.5, label=f"ε={ep}  → σ={sig:.2f}")
         ax2.fill_between(x, y, alpha=0.08, color=clr)
-
-    # Highlight current
-    sig_curr = np.sqrt(2 * np.log(1.25 / 1e-5)) / current_epsilon
+    # Highlight current epsilon
+    sig_curr = np.sqrt(2 * np.log(1.25 / 1e-5)) / epsilon
     y_curr   = (1/(sig_curr*np.sqrt(2*np.pi))) * np.exp(-0.5*(x/sig_curr)**2)
     ax2.plot(x, y_curr, color="#FF6B6B", lw=3, ls="--",
-             label=f"Current (ε={current_epsilon})")
-
+             label=f"Current (ε={epsilon})")
     ax2.axvline(0, color="white", lw=1, alpha=0.3)
     ax2.set_xlabel("Noise Added to Data", fontsize=12)
     ax2.set_ylabel("Probability Density",  fontsize=12)
-    ax2.set_title("Gaussian Noise Distributions\n(Khili curve = kam noise = better accuracy)",
+    ax2.set_title("Gaussian Noise Distributions\n(Narrow curve = less noise = better accuracy)",
                   fontsize=12)
     ax2.legend(fontsize=9); ax2.grid(alpha=0.3)
     ax2.set_xlim([-6, 6])
@@ -348,13 +367,11 @@ def plot_privacy_tradeoff(current_epsilon=5.0):
 # ══════════════════════════════════════════════
 #  PLOT 6: DP NOISE EFFECT (Before vs After)
 # ══════════════════════════════════════════════
-def plot_dp_noise_effect(X_train_norm, feature_names, current_sigma=0.969):
-    try:
-        with open(RESULTS_PATH) as f:
-            res = json.load(f)
-        current_sigma = res["privacy"]["sigma"]
-    except Exception:
-        pass
+def plot_dp_noise_effect(d):
+    X_train_norm = d["X_train_norm"]
+    feature_names = d["feature_cols"]
+    epsilon = d["epsilon"]
+    sigma   = np.sqrt(2 * np.log(1.25 / 1e-5)) / epsilon
 
     n_feat = len(feature_names)
     cols   = min(4, n_feat)
@@ -362,7 +379,7 @@ def plot_dp_noise_effect(X_train_norm, feature_names, current_sigma=0.969):
 
     fig, axes = plt.subplots(rows, cols, figsize=(cols*4, rows*3.5))
     fig.patch.set_facecolor(BG_COLOR)
-    fig.suptitle(f"DP Gaussian Noise Effect on Features\n(σ={current_sigma:.4f}  — Original vs DP-Noisy)",
+    fig.suptitle(f"DP Gaussian Noise Effect on Features\n(σ={sigma:.4f}  — Original vs DP-Noisy)",
                  fontsize=14, fontweight="bold", y=1.01)
 
     if rows * cols == 1:
@@ -372,8 +389,8 @@ def plot_dp_noise_effect(X_train_norm, feature_names, current_sigma=0.969):
     elif cols == 1:
         axes = axes.reshape(-1, 1)
 
-    noise      = np.random.normal(0, current_sigma, X_train_norm[:500].shape)
-    X_noisy    = np.clip(X_train_norm[:500] + noise, 0, 1)
+    noise   = np.random.normal(0, sigma, X_train_norm[:500].shape)
+    X_noisy = np.clip(X_train_norm[:500] + noise, 0, 1)
 
     for idx in range(rows * cols):
         r, c = divmod(idx, cols)
@@ -402,9 +419,11 @@ def plot_dp_noise_effect(X_train_norm, feature_names, current_sigma=0.969):
 # ══════════════════════════════════════════════
 #  PLOT 7: FEATURE DISTRIBUTION PER CLASS
 # ══════════════════════════════════════════════
-def plot_feature_per_class(df, target_col, feature_names, class_names):
-    # Pick top 6 most important-looking numeric features
-    n_show = min(6, len(feature_names))
+def plot_feature_per_class(d):
+    df, target_col = d["df"], d["target_col"]
+    feature_names, class_names = d["feature_cols"], d["class_names"]
+
+    n_show        = min(6, len(feature_names))
     features_show = feature_names[:n_show]
 
     fig, axes = plt.subplots(2, 3, figsize=(16, 9))
@@ -414,7 +433,7 @@ def plot_feature_per_class(df, target_col, feature_names, class_names):
 
     for idx, (ax, feat) in enumerate(zip(axes.flat, features_show)):
         for ci, (cls, color) in enumerate(zip(class_names, COLORS10)):
-            subset = df[df[target_col].astype(str) == cls][feat]
+            subset     = df[df[target_col].astype(str) == cls][feat]
             subset_num = pd.to_numeric(subset, errors='coerce').dropna()
             if len(subset_num) > 0:
                 ax.hist(subset_num, bins=25, alpha=0.55, color=color,
@@ -427,7 +446,6 @@ def plot_feature_per_class(df, target_col, feature_names, class_names):
         if idx == 0:
             ax.legend(fontsize=8)
 
-    # Hide unused
     for ax in axes.flat[n_show:]:
         ax.set_visible(False)
 
@@ -441,7 +459,8 @@ def plot_feature_per_class(df, target_col, feature_names, class_names):
 # ══════════════════════════════════════════════
 #  PLOT 8: FEATURE CORRELATION HEATMAP
 # ══════════════════════════════════════════════
-def plot_correlation_heatmap(df, feature_names):
+def plot_correlation_heatmap(d):
+    df, feature_names = d["df"], d["feature_cols"]
     fig, ax = plt.subplots(figsize=(max(8, len(feature_names)), max(7, len(feature_names))))
     fig.patch.set_facecolor(BG_COLOR)
 
@@ -461,7 +480,7 @@ def plot_correlation_heatmap(df, feature_names):
 
     for i in range(len(corr)):
         for j in range(len(corr.columns)):
-            val = corr.values[i, j]
+            val   = corr.values[i, j]
             color = "white" if abs(val) < 0.5 else BG_COLOR
             ax.text(j, i, f"{val:.2f}", ha="center", va="center",
                     fontsize=7.5, color=color)
@@ -475,9 +494,10 @@ def plot_correlation_heatmap(df, feature_names):
 
 
 # ══════════════════════════════════════════════
-#  PLOT 9: MODEL CONFIDENCE
+#  PLOT 9: PREDICTION CONFIDENCE
 # ══════════════════════════════════════════════
-def plot_confidence(y_pred, y_pred_proba, class_names):
+def plot_confidence(d):
+    y_pred, y_pred_proba, class_names = d["y_pred"], d["y_pred_proba"], d["class_names"]
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
     fig.patch.set_facecolor(BG_COLOR)
     fig.suptitle("Prediction Confidence Analysis", fontsize=15, fontweight="bold", y=1.01)
@@ -517,28 +537,23 @@ def plot_confidence(y_pred, y_pred_proba, class_names):
 # ══════════════════════════════════════════════
 #  PLOT 0: MASTER DASHBOARD
 # ══════════════════════════════════════════════
-def plot_dashboard(df, rf, le, X_train_norm, X_test_norm, y_test, y_pred, y_pred_proba,
-                   feature_names, class_names, target_col):
-    # Load results
-    try:
-        with open(RESULTS_PATH) as f:
-            res = json.load(f)
-        test_acc  = res["performance"]["test_accuracy"]
-        auc_val   = res["performance"]["auc_roc"]
-        epsilon   = res["privacy"]["epsilon"]
-        sigma     = res["privacy"]["sigma"]
-        cv_mean   = res["performance"]["cv_mean"]
-        cv_std    = res["performance"]["cv_std"]
-        n_train   = res["run_info"]["train_size"]
-        n_test    = res["run_info"]["test_size_n"]
-    except Exception:
-        from sklearn.metrics import accuracy_score
-        test_acc = accuracy_score(y_test, y_pred)
-        auc_val  = None; epsilon = 5.0; sigma = 0.969
-        cv_mean  = 0.0;  cv_std  = 0.0
-        n_train  = len(y_test)*4; n_test = len(y_test)
+def plot_dashboard(d):
+    df           = d["df"]
+    rf           = d["rf"]
+    target_col   = d["target_col"]
+    class_names  = d["class_names"]
+    feature_names= d["feature_cols"]
+    X_train_norm = d["X_train_norm"]
+    X_test_norm  = d["X_test_norm"]
+    y_test       = d["y_test"]
+    y_pred       = d["y_pred"]
+    y_pred_proba = d["y_pred_proba"]
+    epsilon      = d["epsilon"]
+    acc_base     = d["acc_base"]
+    acc_dp       = d["acc_dp"]
+    sigma        = np.sqrt(2 * np.log(1.25 / 1e-5)) / epsilon
+    n_classes    = len(class_names)
 
-    n_classes = len(class_names)
     fig = plt.figure(figsize=(22, 15))
     fig.patch.set_facecolor(BG_COLOR)
     fig.suptitle(
@@ -562,9 +577,11 @@ def plot_dashboard(df, rf, le, X_train_norm, X_test_norm, y_test, y_pred, y_pred
             ax_cm.text(j,i,f"{cm[i,j]}\n({cm_pct[i,j]:.0f}%)",
                        ha="center",va="center",fontsize=7,fontweight="bold",color=c)
 
-    # ── B: Feature Importance ──
+    # ── B: Feature Importance (use baseline RF — DP RF returns NaN importances) ──
     ax_fi = fig.add_subplot(gs[0, 1:])
-    imp   = rf.feature_importances_; idx = np.argsort(imp)
+    rf_b  = d["rf_base"]
+    imp   = np.nan_to_num(rf_b.feature_importances_, nan=0.0, posinf=0.0, neginf=0.0)
+    idx   = np.argsort(imp)
     sf    = [feature_names[i] for i in idx]; si = imp[idx]
     cfi   = plt.cm.Blues(np.linspace(0.3,1.0,len(sf)))
     ax_fi.barh(sf, si*100, color=cfi, edgecolor=GRID_COLOR, height=0.65)
@@ -579,7 +596,7 @@ def plot_dashboard(df, rf, le, X_train_norm, X_test_norm, y_test, y_pred, y_pred
     y_bin  = label_binarize(y_test, classes=range(n_classes))
     for i,(name,color) in enumerate(zip(class_names,COLORS10)):
         fpr,tpr,_ = roc_curve(y_bin[:,i], y_pred_proba[:,i])
-        ax_roc.plot(fpr,tpr,color=color,lw=2,label=f"C{name}({auc(fpr,tpr):.2f})")
+        ax_roc.plot(fpr,tpr,color=color,lw=2,label=f"C{name}({sk_auc(fpr,tpr):.2f})")
     ax_roc.plot([0,1],[0,1],"w--",lw=1,alpha=0.4)
     ax_roc.set_title("ROC Curves",fontsize=12,fontweight="bold",pad=8)
     ax_roc.set_xlabel("FPR",fontsize=9); ax_roc.set_ylabel("TPR",fontsize=9)
@@ -628,15 +645,15 @@ def plot_dashboard(df, rf, le, X_train_norm, X_test_norm, y_test, y_pred, y_pred
     ax_met = fig.add_subplot(gs[2, 2])
     ax_met.set_xlim(0,1); ax_met.set_ylim(0,1); ax_met.axis("off")
     metrics = [
-        ("Test Accuracy",  f"{test_acc*100:.2f}%",  "#55A868"),
-        ("AUC-ROC",        f"{auc_val:.4f}" if auc_val else "N/A", "#55A868"),
-        ("CV Accuracy",    f"{cv_mean*100:.1f}±{cv_std*100:.1f}%", "#4C72B0"),
-        ("Epsilon (ε)",    str(epsilon),  "#FFA500"),
-        ("Sigma (σ)",      f"{sigma:.4f}", "#4C72B0"),
-        ("Classes",        str(n_classes), TEXT_COLOR),
-        ("Train Samples",  f"{n_train:,}", TEXT_COLOR),
-        ("Test Samples",   f"{n_test:,}",  TEXT_COLOR),
-        ("RF Trees",       "200",          TEXT_COLOR),
+        ("Baseline Accuracy", f"{acc_base*100:.2f}%",  "#55A868"),
+        ("DP Model Accuracy", f"{acc_dp*100:.2f}%",    "#4C72B0"),
+        ("Accuracy Drop",     f"{(acc_base-acc_dp)*100:.2f}%", "#FF6B6B"),
+        ("Epsilon (ε)",       str(epsilon),             "#FFA500"),
+        ("Sigma (σ)",         f"{sigma:.4f}",           "#4C72B0"),
+        ("Classes",           str(n_classes),           TEXT_COLOR),
+        ("Train Samples",     f"{len(d['y_train']):,}", TEXT_COLOR),
+        ("Test Samples",      f"{len(y_test):,}",       TEXT_COLOR),
+        ("RF Trees",          "100",                    TEXT_COLOR),
     ]
     ax_met.text(0.5,0.97,"Model Summary",ha="center",va="top",
                 fontsize=12,fontweight="bold",color=TEXT_COLOR,transform=ax_met.transAxes)
@@ -659,53 +676,57 @@ def plot_dashboard(df, rf, le, X_train_norm, X_test_norm, y_test, y_pred, y_pred
 #  MAIN
 # ══════════════════════════════════════════════
 if __name__ == "__main__":
-    import matplotlib
-    matplotlib.use("Agg")
-
     print("=" * 60)
     print("  PrivaCare-AI — Visualizations (Auto-Adaptive)")
     print("=" * 60)
 
-    print("\n  Data aur models load ho rahe hain...")
-    (df, rf, le, scaler, X_tr_n, X_te_n,
-     y_test, y_pred, y_pred_proba,
-     feature_cols, class_names, target_col) = load_data()
+    print("\n------------------------------------------------")
+    try:
+        user_input = input("Enter Epsilon value (same as dp_train_test.py) [Default 0.5]: ").strip()
+        epsilon = float(user_input) if user_input else 0.5
+    except ValueError:
+        print("Invalid input! Defaulting to 0.5")
+        epsilon = 0.5
+    print(f"--> Epsilon = {epsilon}")
+    print("------------------------------------------------")
 
-    print(f"  Dataset: {len(df):,} rows | Target: '{target_col}' | Classes: {class_names}")
-    print(f"  Features ({len(feature_cols)}): {feature_cols}")
-    print(f"\n  9 plots + 1 dashboard generate ho rahe hain...\n")
+    print(f"\n  Loading data & training models (eps={epsilon})...")
+    d = load_and_train(epsilon=epsilon)
+    print(f"  Dataset: {len(d['df']):,} rows | Target: '{d['target_col']}' | Classes: {d['class_names']}")
+    print(f"  Features ({len(d['feature_cols'])}): {d['feature_cols']}")
+    print(f"  Baseline Accuracy: {d['acc_base']*100:.2f}%  |  DP Accuracy: {d['acc_dp']*100:.2f}%")
+    print(f"\n  Generating 10 plots...\n")
 
     print("  [1/9] Confusion Matrix...")
-    plot_confusion_matrix(y_test, y_pred, class_names)
+    plot_confusion_matrix(d)
 
     print("  [2/9] Feature Importance...")
-    plot_feature_importance(rf, feature_cols)
+    plot_feature_importance(d)
 
     print("  [3/9] Class Distribution...")
-    plot_class_distribution(df, target_col, class_names)
+    plot_class_distribution(d)
 
     print("  [4/9] ROC Curves...")
-    plot_roc_curves(y_test, y_pred_proba, class_names)
+    plot_roc_curves(d)
 
     print("  [5/9] Privacy Tradeoff...")
-    plot_privacy_tradeoff()
+    plot_privacy_tradeoff(d)
 
     print("  [6/9] DP Noise Effect...")
-    plot_dp_noise_effect(X_tr_n, feature_cols)
+    plot_dp_noise_effect(d)
 
     print("  [7/9] Feature Distribution per Class...")
-    plot_feature_per_class(df, target_col, feature_cols, class_names)
+    plot_feature_per_class(d)
 
     print("  [8/9] Correlation Heatmap...")
-    plot_correlation_heatmap(df, feature_cols)
+    plot_correlation_heatmap(d)
 
     print("  [9/9] Confidence Distribution...")
-    plot_confidence(y_pred, y_pred_proba, class_names)
+    plot_confidence(d)
 
     print("\n  [DASHBOARD] Master chart...")
-    plot_dashboard(df, rf, le, X_tr_n, X_te_n, y_test, y_pred, y_pred_proba,
-                   feature_cols, class_names, target_col)
+    plot_dashboard(d)
 
     print(f"\n{'=' * 60}")
-    print(f"  Sab 10 plots save ho gaye: {PLOTS_DIR}/")
+    print(f"  All 10 plots saved to: {PLOTS_DIR}/")
     print(f"{'=' * 60}")

@@ -1,6 +1,6 @@
 """
 PrivaCare-AI
-Differential Privacy using Gaussian Mechanism + Random Forest
+Differential Privacy using diffprivlib (IBM) + Random Forest
 """
 
 import os
@@ -10,6 +10,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, MinMaxScaler
 from sklearn.metrics import accuracy_score
+import diffprivlib.models as dp
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -48,12 +49,15 @@ X_train, X_test, y_train, y_test = train_test_split(
 # ─────────────────────────────────────────────
 # 3. Normalize features to [0, 1]
 # ─────────────────────────────────────────────
-scaler = MinMaxScaler()
+scaler = MinMaxScaler(feature_range=(0, 1))
 X_train_norm = scaler.fit_transform(X_train)
 X_test_norm  = scaler.transform(X_test)
 
+# Define bounds for the DP model
+bounds = ([0.0] * X_train_norm.shape[1], [1.0] * X_train_norm.shape[1])
+
 # ─────────────────────────────────────────────
-# 4. Ask Epsilon
+# 4. Ask Epsilon (Only Epsilon, Default 0.5)
 # ─────────────────────────────────────────────
 print("\n------------------------------------------------")
 try:
@@ -62,8 +66,7 @@ try:
 except ValueError:
     print("Invalid input! Defaulting to 0.5")
     epsilon = 0.5
-delta = 1e-5
-print(f"--> Epsilon = {epsilon} | Delta = {delta}")
+print(f"--> Epsilon = {epsilon}")
 print("------------------------------------------------")
 
 # ─────────────────────────────────────────────
@@ -73,34 +76,25 @@ print("\n[1] Training Baseline Random Forest (No DP Noise)...")
 rf_baseline = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
 rf_baseline.fit(X_train_norm, y_train)
 acc_baseline = accuracy_score(y_test, rf_baseline.predict(X_test_norm))
-print(f"--> Baseline Accuracy (Without Privacy): {acc_baseline * 100:.2f}%")
 
 # ─────────────────────────────────────────────
-# 6. Apply Gaussian DP Noise
+# 6. DP Model — Algorithmic Privacy
 # ─────────────────────────────────────────────
-sensitivity = 1.0  # features already in [0,1]
-sigma = sensitivity * np.sqrt(2 * np.log(1.25 / delta)) / epsilon
-print(f"\n[2] Applying Gaussian DP Noise (epsilon={epsilon}, sigma={sigma:.4f})...")
-
-print(f"    Sample BEFORE noise: {X_train_norm[0].round(4)}")
-noise      = np.random.normal(loc=0.0, scale=sigma, size=X_train_norm.shape)
-X_train_dp = np.clip(X_train_norm + noise, 0.0, 1.0)
-print(f"    Sample AFTER  noise: {X_train_dp[0].round(4)}")
-
-# ─────────────────────────────────────────────
-# 7. DP Model — Train on Noisy Data
-# ─────────────────────────────────────────────
-print(f"\n[3] Training DP Random Forest (With Gaussian Noise)...")
-rf_dp = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
-rf_dp.fit(X_train_dp, y_train)
+print(f"\n[2] Training DP Random Forest (Algorithmic Privacy, epsilon={epsilon})...")
+rf_dp = dp.RandomForestClassifier(
+    n_estimators=100, 
+    epsilon=epsilon, 
+    bounds=bounds,
+    random_state=42
+)
+rf_dp.fit(X_train_norm, y_train)
 acc_dp = accuracy_score(y_test, rf_dp.predict(X_test_norm))
-print(f"--> DP Model Accuracy (With Privacy, epsilon={epsilon}): {acc_dp * 100:.2f}%")
 
 # ─────────────────────────────────────────────
-# 8. Result Summary
+# 7. Result Summary
 # ─────────────────────────────────────────────
 print("\n================ RESULT SUMMARY ================")
 print(f"Original Model Accuracy (No Privacy) : {acc_baseline * 100:.2f}%")
-print(f"Gaussian DP Model Accuracy           : {acc_dp * 100:.2f}%")
+print(f"DP Model Accuracy (Epsilon={epsilon})      : {acc_dp * 100:.2f}%")
 print(f"Accuracy Drop (Privacy Cost)         : {(acc_baseline - acc_dp) * 100:.2f}%")
 print("================================================")
