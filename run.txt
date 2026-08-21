@@ -1,0 +1,127 @@
+========================================================
+  PrivaCare-AI -- Experiment Run Results
+  Dataset : 6,000 rows | 13 features | 4 classes
+  Model   : DP Random Forest (IBM diffprivlib)
+  Trials  : 3 runs per epsilon (mean +/- std reported)
+  Delta   : 1e-05 (fixed)
+========================================================
+
+
+HOW TO RUN
+----------
+Step 1 -- Train the model:
+    python dp_train_test.py
+    (Enter epsilon value when prompted, e.g. 0.5 or 1.0)
+
+Step 2 -- Generate all 10 plots:
+    python visualize_results.py
+    (Enter the SAME epsilon as Step 1)
+
+Step 3 -- View plots:
+    start results\plots
+    (Opens the plots folder in Windows Explorer)
+
+Or run both at once (Windows PowerShell):
+    echo "0.5" | python dp_train_test.py
+    echo "0.5" | python visualize_results.py
+
+========================================================
+GOLDEN RULE:
+  epsilon badhao --> privacy KAM,  accuracy ZYADA
+  epsilon ghatao --> privacy ZYADA, accuracy KAM
+  YE TRADEOFF HAI!
+========================================================
+
+
+------------------------------------------------------------
+RUN 1 -- Epsilon (e) = 0.5  |  High Privacy
+------------------------------------------------------------
+
+Command used:
+    echo "0.5" | python dp_train_test.py
+
+Privacy Parameters:
+    Epsilon (e)          = 0.5
+    Delta   (d)          = 1e-05
+    Sigma   (s, Analytic GM) = 7.0318
+    Privacy Guarantee    = (0.5, 1e-05)-DP
+    Privacy Level        = HIGH (e < 2)
+
+Results:
+    Baseline Accuracy (No DP)           : 99.92%
+    DP Accuracy (3 trials avg)          : 84.47%
+    Standard Deviation across trials    : +/- 3.44%
+    Accuracy Drop (Privacy Cost)        : 15.44%
+    Normalization                       : Domain-bound clipping (data-independent)
+
+Trial-wise Breakdown:
+    Trial 1/3  (seed=42) : 80.17%
+    Trial 2/3  (seed=43) : 88.58%
+    Trial 3/3  (seed=44) : 84.67%
+
+Per-Class Accuracy (Confusion Matrix):
+    Normal        : 299/300  = 100%  (excellent)
+    Mild Risk     : 70/300   =  23%  (weak - DP noise blurs boundary)
+    Moderate Risk : 300/300  = 100%  (excellent)
+    High Risk     : 293/300  =  98%  (excellent)
+
+Interpretation:
+    Strong privacy guarantee but higher accuracy cost.
+    Mild Risk class suffers most -- DP noise blurs the
+    decision boundary between adjacent risk classes.
+    Best choice for highly sensitive medical data.
+
+
+------------------------------------------------------------
+RUN 2 -- Epsilon (e) = 1.0  |  Balanced (Research)
+------------------------------------------------------------
+
+Command used:
+    echo "1.0" | python dp_train_test.py
+
+Privacy Parameters:
+    Epsilon (e)          = 1.0
+    Delta   (d)          = 1e-05
+    Sigma   (s, Analytic GM) = 3.7306
+    Privacy Guarantee    = (1.0, 1e-05)-DP
+    Privacy Level        = MODERATE-HIGH (0.5 < e < 2)
+
+Results:
+    Baseline Accuracy (No DP)           : 99.92%
+    DP Accuracy (3 trials avg)          : 88.39%
+    Standard Deviation across trials    : +/- 1.86%
+    Accuracy Drop (Privacy Cost)        : 11.53%
+    Normalization                       : Domain-bound clipping (data-independent)
+
+Trial-wise Breakdown:
+    Trial 1/3  (seed=42) : 86.83%
+    Trial 2/3  (seed=43) : 87.33%
+    Trial 3/3  (seed=44) : 91.00%
+
+Interpretation:
+    Better balance between privacy and accuracy.
+    Lower variance (1.86% vs 3.44%) -- more stable results.
+    Suitable for research and clinical studies.
+
+
+------------------------------------------------------------
+COMPARISON SUMMARY
+------------------------------------------------------------
+
+| Epsilon | Privacy  | Sigma  | DP Accuracy      | Drop   |
+|---------|----------|--------|------------------|--------|
+|   0.5   | HIGH     | 7.0318 | 84.47% +/- 3.44% | 15.44% |
+|   1.0   | MOD-HIGH | 3.7306 | 88.39% +/- 1.86% | 11.53% |
+
+Key Takeaways:
+  1. Increasing epsilon from 0.5 to 1.0 gives +3.92% accuracy
+  2. Sigma halved (7.03 -> 3.73) meaning noise is significantly less
+  3. Variance dropped (3.44% -> 1.86%) -- more reliable predictions
+  4. Analytic GM sigma is used (valid for all epsilon)
+     Classical formula would give sigma=9.68 for e=0.5 (38% over-noisy!)
+
+========================================================
+  All results generated using:
+  dp_train_test.py  (DP training with diffprivlib)
+  visualize_results.py (10 plots saved to results/plots/)
+========================================================
