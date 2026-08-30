@@ -1,23 +1,22 @@
 """
 PrivaCare-AI - Differential Privacy Training
-Backend: IBM diffprivlib DP Random Forest
+Comparison: Two DP Approaches
 
-DP Correctness Fixes Applied (Round 1):
-  1. Data-independent bounds (domain knowledge, NOT data statistics)
-  2. Analytic Gaussian sigma display (Balle & Wang, 2018) - for transparency
-  3. Per-run privacy budget composition warning
-  4. Multiple trials (N_TRIALS) - mean +/- std reported
-  5. Binary features handled separately (Gaussian DP inappropriate for 0/1)
-  6. Fixed per-trial seeds - fully reproducible
-  7. Printed note on label (target) privacy - standard DP-ML design
+APPROACH 1 - Analytic Gaussian Mechanism (Balle & Wang, 2018):
+  - Features normalized to [0,1] via data-independent DOMAIN_BOUNDS
+  - Calibrated Gaussian noise injected into training features
+  - sigma = analytic_gaussian_sigma(epsilon, delta), sensitivity=1.0
+  - Guarantee: (epsilon, delta)-DP per feature
+  - Under basic composition: (N*epsilon, N*delta)-DP overall
+  - sklearn RF trained on noisy features
 
-DP Correctness Fixes Applied (Round 2):
-  8.  Sigma display: clarified it matches diffprivlib internal sigma (same Analytic GM)
-  9.  Composition: TOTAL consumed epsilon (N_TRIALS x epsilon) shown in final summary
-  10. Test normalization: train-computed fallback bounds reused for test (no data leakage)
-  11. Gender encoding: explicit map + ValueError on unknown values (no silent errors)
-  12. STRICT_DOMAIN_BOUNDS: missing features halt execution (no silent DP weakening)
-  13. README updated: IoT/Blockchain noted as future work
+APPROACH 2 - diffprivlib DP Random Forest (IBM):
+  - Uses Exponential Mechanism for tree splitting
+  - Uses Laplace Mechanism for leaf node vote counts
+  - Guarantee: pure epsilon-DP (no delta needed)
+  - Designed specifically for RF trees -- more efficient than feature noise
+
+Both approaches use data-independent DOMAIN_BOUNDS for sensitivity=1.0.
 """
 
 import math
@@ -34,76 +33,44 @@ warnings.filterwarnings("ignore")
 # ===========================================================================
 #  CONFIGURATION
 # ===========================================================================
-N_TRIALS     = 3      # DP model runs to average (improves result reliability)
-DELTA        = 1e-5   # Fixed failure probability delta
+N_TRIALS     = 3
+DELTA        = 1e-5
 N_ESTIMATORS = 100
-BASE_SEED    = 42     # Trial i gets seed = BASE_SEED + i
-
-# FIX 12 (Round 2): STRICT mode - missing features halt execution.
-# Setting this to False downgrades to a warning (NOT recommended for DP work).
-# If False, fallback uses TRAIN-ONLY min/max (not test min/max) to avoid data leakage.
+BASE_SEED    = 42
 STRICT_DOMAIN_BOUNDS = True
-
 
 # ===========================================================================
 #  DATA-INDEPENDENT FEATURE BOUNDS
-#  -------------------------------------------------------------------------
-#  DP RULE: Sensitivity must be derived from *domain knowledge*, NOT from
-#  actual training data. Using data min/max (e.g. MinMaxScaler.fit) leaks
-#  information about the training set into the noise calibration, breaking
-#  the formal (epsilon, delta)-DP guarantee.
-#  (Dwork & Roth, 2014 - The Algorithmic Foundations of DP, Def. 3.1)
 # ===========================================================================
 DOMAIN_BOUNDS = {
-    # -- Vital Signs --------------------------------------------------------
-    "heart_rate":               (30,    220),    # BPM (rest to max exercise)
-    "blood_oxygen":             (70.0, 100.0),   # SpO2 % (hypoxia to perfect)
-    "blood_pressure_systolic":  (60,    250),    # mmHg
-    "blood_pressure_diastolic": (40,    150),    # mmHg
-    "glucose_level":            (50.0,  500.0),  # mg/dL (hypo to diabetic crisis)
-    "body_temperature":         (35.0,  42.0),   # Celsius (hypothermia to fever)
-    "respiratory_rate":         (8,     40),     # breaths/min
-    # -- Wearable / Lifestyle -----------------------------------------------
-    "activity_level":           (0.0,   10.0),   # scale 0-10
-    "sleep_quality":            (0.0,   10.0),   # scale 0-10
-    "stress_level":             (0.0,   10.0),   # scale 0-10
-    "hrv_sdnn":                 (5.0,  200.0),   # ms
-    "steps_count":              (0,    50000),    # daily steps
-    "calories_burned":          (0,     5000),   # kcal/day
-    # -- Demographics -------------------------------------------------------
-    "age":                      (0,     120),    # years
-    "gender":                   (0,     1),      # binary (handled separately)
+    "heart_rate":               (30,    220),
+    "blood_oxygen":             (70.0, 100.0),
+    "blood_pressure_systolic":  (60,    250),
+    "blood_pressure_diastolic": (40,    150),
+    "glucose_level":            (50.0,  500.0),
+    "body_temperature":         (35.0,  42.0),
+    "respiratory_rate":         (8,     40),
+    "activity_level":           (0.0,   10.0),
+    "sleep_quality":            (0.0,   10.0),
+    "stress_level":             (0.0,   10.0),
+    "hrv_sdnn":                 (5.0,  200.0),
+    "steps_count":              (0,    50000),
+    "calories_burned":          (0,     5000),
+    "age":                      (0,     120),
+    "gender":                   (0,     1),
 }
 
-# Binary/categorical features:
-# Gaussian DP is statistically inappropriate for binary (0/1) variables.
-# diffprivlib's RF handles bounds=(0,1) correctly for binary inputs.
 BINARY_FEATURES = {"gender"}
+GENDER_MAP = {"male": 1, "m": 1, "female": 0, "f": 0, "woman": 0, "man": 1}
 
 
 # ===========================================================================
-#  ANALYTIC GAUSSIAN MECHANISM SIGMA  (Balle & Wang, NeurIPS 2018)
-#  -------------------------------------------------------------------------
-#  IMPORTANT CORRECTION (Round 3):
-#  diffprivlib.models.RandomForestClassifier provides PURE epsilon-DP,
-#  NOT (epsilon, delta)-DP. It uses:
-#    - Exponential Mechanism for tree splitting (pure DP)
-#    - Laplace Mechanism for leaf node counts (pure DP)
-#  Delta is NOT accepted or used by diffprivlib RF.
-#
-#  The sigma/delta below are computed for REFERENCE ONLY — to show what
-#  a Gaussian mechanism WOULD need for the same epsilon. This is purely
-#  informational for comparison. The actual model guarantee is epsilon-DP.
-#
-#  The DELTA config variable is kept for this reference computation only.
+#  ANALYTIC GAUSSIAN MECHANISM  (Balle & Wang, NeurIPS 2018)
 # ===========================================================================
 def analytic_gaussian_sigma(epsilon, delta, sensitivity=1.0):
     """
-    Minimum sigma for Analytic Gaussian Mechanism (Balle & Wang, 2018).
-    Valid for all epsilon > 0. Uses binary search on the normal CDF.
-
-    NOTE: This matches diffprivlib's internal sigma computation.
-    Used here for display/logging only — diffprivlib handles its own internals.
+    Minimum sigma for (epsilon, delta)-DP via Analytic Gaussian Mechanism.
+    Valid for all epsilon > 0. Binary search on normal CDF.
     """
     from scipy.special import erfc
 
@@ -126,64 +93,46 @@ def analytic_gaussian_sigma(epsilon, delta, sensitivity=1.0):
 
 
 # ===========================================================================
-#  DATA-INDEPENDENT NORMALIZATION
-#  -------------------------------------------------------------------------
-#  FIX 10 (Round 2): fallback_bounds parameter added.
-#  - Train call: computes fallback from X_TRAIN and returns them.
-#  - Test call:  reuses train-computed fallbacks (not test min/max).
-#  This ensures train and test use IDENTICAL scaling, preventing both
-#  data leakage and ML train/test inconsistency bugs.
+#  NORMALIZATION
 # ===========================================================================
 def normalize_with_domain_bounds(X, feature_names, fallback_bounds=None):
-    """
-    Clip each feature to its pre-defined clinical/domain bound, then
-    scale linearly to [0, 1].
-
-    Data-independent — never uses X's statistics to set bounds (unless
-    fallback_bounds is provided, which should always be from train data).
-
-    Args:
-        X              : numpy array to normalize
-        feature_names  : list of feature column names
-        fallback_bounds: dict of {col: (lo, hi)} computed from TRAIN data.
-                         Pass this when normalizing test data to ensure
-                         identical scaling. If None, computes from X (train only).
-
-    Returns:
-        X_norm         : normalized array (values in [0, 1])
-        computed_fallbacks: dict of any bounds computed from X (empty if all in DOMAIN_BOUNDS)
-    """
     X_norm = X.copy().astype(float)
     computed_fallbacks = {}
-
     for i, col in enumerate(feature_names):
         if col in DOMAIN_BOUNDS:
             lo, hi = DOMAIN_BOUNDS[col]
         elif fallback_bounds and col in fallback_bounds:
-            # Reuse train-computed fallback -- safe for test normalization
             lo, hi = fallback_bounds[col]
         else:
-            # FIX 12: STRICT mode halts execution on missing bounds
             if STRICT_DOMAIN_BOUNDS:
                 raise ValueError(
-                    f"\n  [DP ERROR] Feature '{col}' is NOT in DOMAIN_BOUNDS.\n"
-                    f"  DP guarantee is BROKEN without a data-independent bound.\n"
-                    f"  ACTION REQUIRED: Add '{col}' to the DOMAIN_BOUNDS dict above.\n"
-                    f"  (Set STRICT_DOMAIN_BOUNDS=False to override with a warning -- NOT recommended.)"
+                    f"[DP ERROR] Feature '{col}' not in DOMAIN_BOUNDS. "
+                    f"Add it or set STRICT_DOMAIN_BOUNDS=False."
                 )
-            # Non-strict fallback: compute from X (should be train data only!)
             lo, hi = float(X[:, i].min()), float(X[:, i].max())
             computed_fallbacks[col] = (lo, hi)
-            print(f"\n  [!] WARNING: No domain bound for '{col}'.")
-            print(f"      Using train data min={lo:.3f}, max={hi:.3f} as fallback.")
-            print(f"      This WEAKENS the DP guarantee. Add '{col}' to DOMAIN_BOUNDS.\n")
-
+            print(f"  WARNING: No domain bound for '{col}' -- using train min/max.")
         X_norm[:, i] = np.clip(X_norm[:, i], lo, hi)
         X_norm[:, i] = (X_norm[:, i] - lo) / (hi - lo + 1e-12)
+    return X_norm, computed_fallbacks
 
-    lower_bounds = [0.0] * X_norm.shape[1]
-    upper_bounds = [1.0] * X_norm.shape[1]
-    return X_norm, lower_bounds, upper_bounds, computed_fallbacks
+
+# ===========================================================================
+#  GAUSSIAN NOISE INJECTION
+# ===========================================================================
+def add_gaussian_dp_noise(X_norm, feature_names, sigma, rng):
+    """
+    Add Gaussian noise N(0, sigma^2) to each continuous feature.
+    Binary features (BINARY_FEATURES) are skipped.
+    Output is clipped to [0,1] after noise.
+    """
+    X_noisy = X_norm.copy()
+    for i, col in enumerate(feature_names):
+        if col in BINARY_FEATURES:
+            continue
+        noise = rng.normal(loc=0.0, scale=sigma, size=X_norm.shape[0])
+        X_noisy[:, i] = np.clip(X_noisy[:, i] + noise, 0.0, 1.0)
+    return X_noisy
 
 
 # ===========================================================================
@@ -192,7 +141,6 @@ def normalize_with_domain_bounds(X, feature_names, fallback_bounds=None):
 csv_path = "data/dataset.csv"
 df = pd.read_csv(csv_path)
 
-# Auto-detect target column
 if "health_event" in df.columns:
     target_col = "health_event"
 elif "disease" in df.columns:
@@ -200,25 +148,14 @@ elif "disease" in df.columns:
 else:
     target_col = df.columns[-1]
 
-# FIX 11 (Round 2): Explicit gender encoding with ValueError on unknown values.
-# Old code: (df["gender"].lower() == "male").astype(int)
-#   -- silently mapped "Female", "Other", NaN, typos all to 0.
-# New code: explicit map, halts on unexpected values.
-GENDER_MAP = {"male": 1, "m": 1, "female": 0, "f": 0, "woman": 0, "man": 1}
-
 if "gender" in df.columns and df["gender"].dtype == object:
     def encode_gender(val):
         v = str(val).strip().lower()
         if v not in GENDER_MAP:
-            raise ValueError(
-                f"  [DATA ERROR] Unknown gender value: '{val}'.\n"
-                f"  Expected one of: {list(GENDER_MAP.keys())}.\n"
-                f"  Fix the dataset or extend GENDER_MAP."
-            )
+            raise ValueError(f"Unknown gender value: '{val}'. Expected: {list(GENDER_MAP.keys())}")
         return GENDER_MAP[v]
     df["gender"] = df["gender"].apply(encode_gender)
 
-# Feature selection (numeric, non-ID columns)
 drop_cols    = ["timestamp", "device_id", "patient_id", "is_synthetic", target_col]
 feature_cols = [c for c in df.columns
                 if c not in drop_cols
@@ -227,153 +164,137 @@ feature_cols = [c for c in df.columns
 X  = df[feature_cols].values.astype(float)
 le = LabelEncoder()
 y  = le.fit_transform(df[target_col].values)
+n_features = len(feature_cols)
 
-print(f"\n{'='*60}")
-print(f"  PrivaCare-AI -- Differential Privacy Training")
-print(f"{'='*60}")
-print(f"\n  Dataset : {X.shape[0]:,} rows | {X.shape[1]} features")
-print(f"  Target  : '{target_col}' | {len(np.unique(y))} classes")
-print(f"  Features: {feature_cols}\n")
+print(f"\n{'='*62}")
+print(f"  PrivaCare-AI -- DP Comparison: Gaussian vs diffprivlib RF")
+print(f"{'='*62}")
+print(f"\n  Dataset : {X.shape[0]:,} rows | {n_features} features | {len(np.unique(y))} classes\n")
 
-# LABEL PRIVACY NOTE
+# Label privacy note
 print("  +--[ PRIVACY SCOPE NOTE ]" + "-"*35 + "+")
-print(f"  | Target label ('{target_col}') is NOT DP-protected.              |")
-print("  | Standard DP-ML design (Abadi et al. 2016 DP-SGD).          |")
-print("  | Privacy guarantee = what the *model* reveals about records. |")
-print("  | For label privacy: consider PATE framework.                 |")
-print("  +" + "-"*59 + "+\n")
+print(f"  | Labels are NOT DP-protected (standard DP-ML design).        |")
+print("  | Privacy = what the trained model reveals about training data. |")
+print("  +" + "-"*62 + "+\n")
 
 # ===========================================================================
-#  2. TRAIN / TEST SPLIT
+#  2. TRAIN / TEST SPLIT + NORMALIZATION
 # ===========================================================================
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=BASE_SEED, stratify=y
 )
-
-# ===========================================================================
-#  3. DATA-INDEPENDENT NORMALIZATION
-#  FIX 10: Train normalization returns fallback_bounds computed from train data.
-#          Test normalization REUSES those bounds -- no test data leakage.
-# ===========================================================================
-X_train_norm, lower_bounds, upper_bounds, fallback_bounds = normalize_with_domain_bounds(
-    X_train, feature_cols
-)
-# Test uses train-computed fallbacks -- identical scale guaranteed
-X_test_norm, _, _, _ = normalize_with_domain_bounds(
+X_train_norm, fallback_bounds = normalize_with_domain_bounds(X_train, feature_cols)
+X_test_norm,  _               = normalize_with_domain_bounds(
     X_test, feature_cols, fallback_bounds=fallback_bounds
 )
-bounds = (lower_bounds, upper_bounds)
+bounds_dp = ([0.0] * n_features, [1.0] * n_features)
 
 # ===========================================================================
-#  4. EPSILON INPUT
+#  3. EPSILON INPUT
 # ===========================================================================
-print("  " + "="*58)
+print("  " + "="*60)
 print("  GOLDEN RULE:")
 print("  e (epsilon) badhao  -->  privacy KAM,  accuracy ZYADA")
 print("  e (epsilon) ghatao  -->  privacy ZYADA, accuracy KAM")
-print("  YE TRADEOFF HAI! Choose wisely.")
-print("  " + "-"*58)
-print("  Recommended ranges:")
-print("    e <= 0.5   -->  High Privacy   (medical / sensitive data)")
-print("    e  = 1.0   -->  Balanced       (research)")
-print("    e >= 3.0   -->  High Accuracy  (less sensitive data)")
-print("  " + "="*58)
+print("  " + "="*60)
 
 try:
-    user_input = input("  Enter Epsilon value (e.g. 0.1, 0.5, 1.0) [Default 0.5]: ").strip()
-    epsilon = float(user_input) if user_input else 0.5
+    user_input = input("\n  Enter Epsilon value (e.g. 0.5, 1.0, 5.0) [Default 1.0]: ").strip()
+    epsilon = float(user_input) if user_input else 1.0
 except ValueError:
-    print("  Invalid input -- defaulting to epsilon = 0.5")
-    epsilon = 0.5
+    epsilon = 1.0
 
-# FIX 8 (Round 2): Sigma computed for DISPLAY only.
-# diffprivlib uses this same Analytic GM internally -- values match.
-sigma = analytic_gaussian_sigma(epsilon, DELTA)
-
-# FIX 9 (Round 2): Compute TOTAL privacy budget consumed across N_TRIALS.
+sigma = analytic_gaussian_sigma(epsilon, DELTA, sensitivity=1.0)
 total_epsilon_basic    = N_TRIALS * epsilon
-total_epsilon_advanced = math.sqrt(N_TRIALS) * epsilon  # approximate (advanced composition)
+total_epsilon_advanced = math.sqrt(N_TRIALS) * epsilon
 
-if epsilon > 1.0:
-    print(f"\n  WARNING: epsilon = {epsilon} > 1.0 detected.")
-    print(f"  Classical sigma formula (Dwork-Roth) only proven for epsilon < 1.")
-    print(f"  Using Analytic Gaussian Mechanism (Balle & Wang, 2018) instead.")
-
-print(f"\n  --> Epsilon (e, per run)   = {epsilon}")
-print(f"      DP Guarantee           = pure {epsilon}-DP  (diffprivlib RF uses Exponential + Laplace)")
-print(f"      Sigma ref (Analytic GM)= {sigma:.4f}  [REFERENCE ONLY - what Gaussian would use for delta={DELTA}]")
-print(f"      Trials                 = {N_TRIALS} runs")
-print(f"\n  [!] COMPOSITION WARNING:")
-print(f"      Each training run consumes e={epsilon} from the dataset's privacy budget.")
-print(f"      {N_TRIALS} trials on same data -> TOTAL consumed:")
-print(f"        Basic composition    : e_total = {total_epsilon_basic:.4f}  (= {N_TRIALS} x {epsilon})")
-print(f"        Advanced composition : e_total ~ {total_epsilon_advanced:.4f}  (= sqrt({N_TRIALS}) x {epsilon})")
-print(f"      Final report shows per-run AND total budget below.")
-print(f"  " + "-"*58 + "\n")
+print(f"\n  --> Epsilon                     = {epsilon}")
+print(f"      Sigma (Analytic GM, e={epsilon}) = {sigma:.4f}")
+print(f"      Delta                         = {DELTA}")
 
 # ===========================================================================
-#  5. BASELINE RF - No Privacy
+#  4. BASELINE RF
 # ===========================================================================
-print(f"[1] Training Baseline Random Forest (No DP)...")
-rf_baseline = RandomForestClassifier(
-    n_estimators=N_ESTIMATORS, random_state=BASE_SEED, n_jobs=-1
-)
+print(f"\n{'='*62}")
+print(f"  [0] BASELINE -- No Privacy, No Noise")
+print(f"{'='*62}")
+rf_baseline = RandomForestClassifier(n_estimators=N_ESTIMATORS, random_state=BASE_SEED, n_jobs=-1)
 rf_baseline.fit(X_train_norm, y_train)
 acc_baseline = accuracy_score(y_test, rf_baseline.predict(X_test_norm))
-print(f"    Baseline Accuracy : {acc_baseline * 100:.2f}%\n")
+print(f"      Accuracy : {acc_baseline * 100:.2f}%")
 
 # ===========================================================================
-#  6. DP RF - MULTIPLE TRIALS
-#  -------------------------------------------------------------------------
-#  diffprivlib's RandomForestClassifier distributes the epsilon budget across
-#  trees and features internally -- the epsilon passed is the TOTAL budget
-#  for ONE training call (not per-tree or per-feature).
-#  N_TRIALS separate training calls each consume epsilon independently.
+#  5. APPROACH 1 — ANALYTIC GAUSSIAN MECHANISM + sklearn RF
 # ===========================================================================
-print(f"[2] Training DP Random Forest ({N_TRIALS} trials | e={epsilon} per run | diffprivlib)...")
-print(f"    (diffprivlib distributes e={epsilon} across trees internally per run)\n")
+print(f"\n{'='*62}")
+print(f"  [1] APPROACH 1 -- Analytic Gaussian Mechanism (Balle & Wang, 2018)")
+print(f"      Guarantee: ({epsilon}, {DELTA})-DP per feature")
+print(f"      sigma={sigma:.4f}, sensitivity=1.0, {N_TRIALS} trials")
+print(f"{'='*62}")
 
-trial_accs = []
+gauss_accs = []
+for trial in range(N_TRIALS):
+    seed = BASE_SEED + trial
+    rng  = np.random.RandomState(seed)
+    X_train_noisy = add_gaussian_dp_noise(X_train_norm, feature_cols, sigma, rng)
+    rf_g = RandomForestClassifier(n_estimators=N_ESTIMATORS, random_state=seed, n_jobs=-1)
+    rf_g.fit(X_train_noisy, y_train)
+    acc_t = accuracy_score(y_test, rf_g.predict(X_test_norm))
+    print(f"      Trial {trial+1}/{N_TRIALS} (seed={seed}): {acc_t*100:.2f}%")
+    gauss_accs.append(acc_t)
+
+acc_gauss = float(np.mean(gauss_accs))
+std_gauss = float(np.std(gauss_accs))
+y_pred_gauss = rf_g.predict(X_test_norm)
+print(f"\n      Mean Accuracy : {acc_gauss*100:.2f}% +/- {std_gauss*100:.2f}%")
+print(f"      Privacy       : ({epsilon}, {DELTA})-DP per feature")
+print(f"      Mechanism     : Analytic Gaussian (Balle & Wang, 2018)")
+
+# ===========================================================================
+#  6. APPROACH 2 — diffprivlib DP Random Forest
+# ===========================================================================
+print(f"\n{'='*62}")
+print(f"  [2] APPROACH 2 -- diffprivlib DP Random Forest (IBM)")
+print(f"      Guarantee: {epsilon}-DP (pure DP, Exponential + Laplace)")
+print(f"      {N_TRIALS} trials")
+print(f"{'='*62}")
+
+dp_accs = []
 rf_dp = None
 for trial in range(N_TRIALS):
     seed = BASE_SEED + trial
     rf_dp = dp.RandomForestClassifier(
         n_estimators=N_ESTIMATORS,
         epsilon=epsilon,
-        bounds=bounds,
+        bounds=bounds_dp,
         random_state=seed,
     )
     rf_dp.fit(X_train_norm, y_train)
     acc_t = accuracy_score(y_test, rf_dp.predict(X_test_norm))
-    print(f"    Trial {trial + 1}/{N_TRIALS}  (seed={seed}): {acc_t * 100:.2f}%")
-    trial_accs.append(acc_t)
+    print(f"      Trial {trial+1}/{N_TRIALS} (seed={seed}): {acc_t*100:.2f}%")
+    dp_accs.append(acc_t)
 
-acc_dp  = float(np.mean(trial_accs))
-acc_std = float(np.std(trial_accs))
-
-# Last trial model for downstream use
-y_pred       = rf_dp.predict(X_test_norm)
-y_pred_proba = rf_dp.predict_proba(X_test_norm)
+acc_dp  = float(np.mean(dp_accs))
+std_dp  = float(np.std(dp_accs))
+y_pred_dp       = rf_dp.predict(X_test_norm)
+y_pred_dp_proba = rf_dp.predict_proba(X_test_norm)
+print(f"\n      Mean Accuracy : {acc_dp*100:.2f}% +/- {std_dp*100:.2f}%")
+print(f"      Privacy       : {epsilon}-DP (pure DP)")
+print(f"      Mechanism     : Exponential (splits) + Laplace (leaf counts)")
 
 # ===========================================================================
-#  7. RESULT SUMMARY
-#  FIX 9 (Round 2): Show TOTAL consumed privacy budget (N_TRIALS x epsilon)
-#                   alongside per-run guarantee. Both are displayed clearly.
+#  7. COMPARISON SUMMARY
 # ===========================================================================
-print(f"\n{'='*60}")
-print(f"  RESULT SUMMARY")
-print(f"{'='*60}")
-print(f"  Baseline Accuracy (No DP)              : {acc_baseline * 100:.2f}%")
-print(f"  DP Accuracy ({N_TRIALS} trials, e={epsilon} per run) : {acc_dp * 100:.2f}% +/- {acc_std * 100:.2f}%")
-print(f"  Accuracy Drop (Privacy Cost)           : {(acc_baseline - acc_dp) * 100:.2f}%")
-print(f"  Noise Sigma (Analytic GM, display only): {sigma:.4f}")
-print(f"  Normalization                          : Domain-bound clipping (data-independent)")
-print(f"  " + "-"*58)
-print(f"  PRIVACY BUDGET ACCOUNTING:")
-print(f"    Per-run guarantee        : {epsilon}-DP  (pure DP, diffprivlib RF)")
-print(f"    NOTE: diffprivlib RF uses Exponential + Laplace mechanisms.")
-print(f"          Delta is NOT part of its guarantee (pure DP, not approx DP).")
-print(f"    Total consumed (basic)   : {total_epsilon_basic:.4f}-DP  <-- {N_TRIALS} runs x e={epsilon}")
-print(f"    Total consumed (advanced): ~{total_epsilon_advanced:.4f}-DP   <-- approx. sqrt({N_TRIALS}) x e={epsilon}")
-print(f"    [!] Sigma={sigma:.4f} shown above is Gaussian ref only (not used by model).")
-print(f"{'='*60}\n")
+print(f"\n{'='*62}")
+print(f"  FINAL COMPARISON (epsilon={epsilon})")
+print(f"{'='*62}")
+print(f"  {'Approach':<35} {'Accuracy':>10} {'Privacy Guarantee'}")
+print(f"  {'-'*60}")
+print(f"  {'Baseline (No DP)':<35} {acc_baseline*100:>9.2f}%  None")
+print(f"  {'[1] Gaussian Mechanism (Balle & Wang)':<35} {acc_gauss*100:>9.2f}%  ({epsilon}, {DELTA})-DP")
+print(f"  {'[2] diffprivlib RF (Exponential+Laplace)':<35} {acc_dp*100:>9.2f}%  pure {epsilon}-DP")
+print(f"  {'-'*60}")
+print(f"\n  COMPOSITION (across {N_TRIALS} trials on same dataset):")
+print(f"    Basic    : {N_TRIALS} x {epsilon} = {total_epsilon_basic:.2f}-DP total")
+print(f"    Advanced : sqrt({N_TRIALS}) x {epsilon} ~ {total_epsilon_advanced:.4f}-DP total")
+print(f"{'='*62}\n")
