@@ -122,17 +122,30 @@ def analytic_gaussian_sigma(epsilon: float,
 
 def normalize_with_domain_bounds(
         X: np.ndarray,
-        feature_names: list) -> tuple:
+        feature_names: list,
+        fallback_bounds: dict = None) -> tuple:
     """
     Clip to pre-defined domain bounds then scale to [0,1].
-    Data-independent — never reads actual data statistics for scaling.
+    Data-independent -- never reads actual data statistics for scaling.
+
+    FIX (Round 2): fallback_bounds from train is reused for test.
+    This prevents test data from being scaled differently from train data.
     """
     X_norm = X.copy().astype(float)
+    computed_fallbacks = {}
     for i, col in enumerate(feature_names):
-        lo, hi = DOMAIN_BOUNDS.get(col, (X[:, i].min(), X[:, i].max()))
+        if col in DOMAIN_BOUNDS:
+            lo, hi = DOMAIN_BOUNDS[col]
+        elif fallback_bounds and col in fallback_bounds:
+            lo, hi = fallback_bounds[col]
+        else:
+            # Compute from this X (safe only if this is train data!)
+            lo, hi = float(X[:, i].min()), float(X[:, i].max())
+            computed_fallbacks[col] = (lo, hi)
+            print(f"  WARNING: No domain bound for '{col}' -- using data min/max.")
         X_norm[:, i] = np.clip(X_norm[:, i], lo, hi)
         X_norm[:, i] = (X_norm[:, i] - lo) / (hi - lo + 1e-12)
-    return X_norm
+    return X_norm, computed_fallbacks
 
 plt.rcParams.update({
     "figure.facecolor":  BG_COLOR,
@@ -166,9 +179,17 @@ def load_and_train(epsilon=0.5):
     else:
         target_col = df.columns[-1]
 
-    # Encode gender if present
+    # FIX 11 (Round 2): Explicit gender encoding with ValueError on unknown values.
+    # Old: (df["gender"].lower() == "male").astype(int) -- silently maps all non-male to 0.
+    # New: explicit map, raises error on unexpected values.
+    GENDER_MAP = {"male": 1, "m": 1, "female": 0, "f": 0, "woman": 0, "man": 1}
     if "gender" in df.columns and df["gender"].dtype == object:
-        df["gender"] = (df["gender"].str.strip().str.lower() == "male").astype(int)
+        def encode_gender(val):
+            v = str(val).strip().lower()
+            if v not in GENDER_MAP:
+                raise ValueError(f"Unknown gender value: '{val}'. Expected: {list(GENDER_MAP.keys())}")
+            return GENDER_MAP[v]
+        df["gender"] = df["gender"].apply(encode_gender)
 
     # Drop non-feature columns
     drop_cols    = ["timestamp", "device_id", "patient_id", "is_synthetic", target_col]
@@ -184,9 +205,11 @@ def load_and_train(epsilon=0.5):
         X, y, test_size=0.20, random_state=42, stratify=y
     )
 
-    # FIX 1: Data-independent normalization (domain bounds, not MinMaxScaler.fit)
-    X_train_norm = normalize_with_domain_bounds(X_train, feature_cols)
-    X_test_norm  = normalize_with_domain_bounds(X_test,  feature_cols)
+    # FIX 1 + FIX 10 (Round 2): Train-computed fallback bounds reused for test.
+    # This ensures train and test use identical scaling -- no data leakage.
+    X_train_norm, fallback_bounds = normalize_with_domain_bounds(X_train, feature_cols)
+    X_test_norm,  _               = normalize_with_domain_bounds(X_test,  feature_cols,
+                                                                  fallback_bounds=fallback_bounds)
     bounds = ([0.0] * X_train_norm.shape[1], [1.0] * X_train_norm.shape[1])
 
     # Baseline model

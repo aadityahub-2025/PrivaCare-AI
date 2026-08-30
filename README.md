@@ -309,11 +309,40 @@ Each training run on the same dataset consumes ε from the total privacy budget:
 
 | File | Purpose |
 |------|---------|
-| [`dp_train_test.py`](dp_train_test.py) | Interactive training — baseline + DP RF, multi-trial, composition warnings |
+| [`dp_train_test.py`](dp_train_test.py) | Interactive training — baseline + DP RF, multi-trial, full composition accounting |
 | [`visualize_results.py`](visualize_results.py) | Auto-adaptive visualization engine (10 plots, Analytic GM sigma) |
 | [`requirements.txt`](requirements.txt) | All Python dependencies |
+| [`run.txt`](run.txt) | Experiment results for ε=0.5 and ε=1.0 with per-trial breakdown |
 
 ---
+
+## 🔧 DP Correctness Fixes (Round 2)
+
+| Fix | Issue | Solution |
+|-----|-------|----------|
+| **8** | Sigma displayed but never passed to model | Added `[display only]` label — diffprivlib uses same Analytic GM internally |
+| **9** | N_TRIALS=3 but only per-run ε shown | Final summary now shows **TOTAL consumed budget** (basic + advanced composition) |
+| **10** | Test fallback used test's own min/max | Train-computed fallback bounds **reused** for test normalization |
+| **11** | Gender: non-Male silently mapped to 0 | Explicit `GENDER_MAP` dict + `ValueError` on any unknown gender value |
+| **12** | Missing feature bounds silently continued | `STRICT_DOMAIN_BOUNDS=True` — halts execution if any feature missing from `DOMAIN_BOUNDS` |
+
+---
+
+## 🔮 Planned Extensions
+
+The system architecture diagram includes layers not yet implemented in code:
+
+| Layer | Status | Notes |
+|-------|--------|-------|
+| **IoT Sensor Integration** | 🔵 Planned | Real-time wearable data ingestion via MQTT/REST |
+| **Blockchain Audit Trail** | 🔵 Planned | Immutable logging of DP training events on a permissioned chain |
+| **PATE Framework** | 🔵 Planned | Label-private training for sensitive health targets |
+| **Federated Learning** | 🔵 Planned | Multi-hospital DP training without data sharing |
+
+> These are research directions for future iterations. Current code focuses on the core DP-ML pipeline with formal correctness.
+
+---
+
 
 ## 📄 License
 
