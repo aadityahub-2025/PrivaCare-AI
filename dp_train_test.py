@@ -84,15 +84,18 @@ BINARY_FEATURES = {"gender"}
 # ===========================================================================
 #  ANALYTIC GAUSSIAN MECHANISM SIGMA  (Balle & Wang, NeurIPS 2018)
 #  -------------------------------------------------------------------------
-#  FIX 8 (Round 2) - TRANSPARENCY NOTE:
-#  This function computes sigma for DISPLAY purposes only.
-#  diffprivlib.models.RandomForestClassifier uses epsilon + delta to compute
-#  its own sigma internally via the same Analytic Gaussian Mechanism.
-#  Both produce the same result — this function lets us SHOW the user what
-#  noise scale is being applied, without duplicating diffprivlib's internals.
+#  IMPORTANT CORRECTION (Round 3):
+#  diffprivlib.models.RandomForestClassifier provides PURE epsilon-DP,
+#  NOT (epsilon, delta)-DP. It uses:
+#    - Exponential Mechanism for tree splitting (pure DP)
+#    - Laplace Mechanism for leaf node counts (pure DP)
+#  Delta is NOT accepted or used by diffprivlib RF.
 #
-#  The classical formula (sigma = sqrt(2*ln(1.25/delta)) / epsilon) is only
-#  valid for epsilon < 1. The Analytic GM below is valid for ALL epsilon > 0.
+#  The sigma/delta below are computed for REFERENCE ONLY — to show what
+#  a Gaussian mechanism WOULD need for the same epsilon. This is purely
+#  informational for comparison. The actual model guarantee is epsilon-DP.
+#
+#  The DELTA config variable is kept for this reference computation only.
 # ===========================================================================
 def analytic_gaussian_sigma(epsilon, delta, sensitivity=1.0):
     """
@@ -297,9 +300,9 @@ if epsilon > 1.0:
     print(f"  Using Analytic Gaussian Mechanism (Balle & Wang, 2018) instead.")
 
 print(f"\n  --> Epsilon (e, per run)   = {epsilon}")
-print(f"      Delta   (d)             = {DELTA}")
-print(f"      Sigma   (s, Analytic GM)= {sigma:.4f}  [display only -- diffprivlib uses same internally]")
-print(f"      Trials                  = {N_TRIALS} runs")
+print(f"      DP Guarantee           = pure {epsilon}-DP  (diffprivlib RF uses Exponential + Laplace)")
+print(f"      Sigma ref (Analytic GM)= {sigma:.4f}  [REFERENCE ONLY - what Gaussian would use for delta={DELTA}]")
+print(f"      Trials                 = {N_TRIALS} runs")
 print(f"\n  [!] COMPOSITION WARNING:")
 print(f"      Each training run consumes e={epsilon} from the dataset's privacy budget.")
 print(f"      {N_TRIALS} trials on same data -> TOTAL consumed:")
@@ -367,8 +370,10 @@ print(f"  Noise Sigma (Analytic GM, display only): {sigma:.4f}")
 print(f"  Normalization                          : Domain-bound clipping (data-independent)")
 print(f"  " + "-"*58)
 print(f"  PRIVACY BUDGET ACCOUNTING:")
-print(f"    Per-run guarantee        : ({epsilon}, {DELTA})-DP")
-print(f"    Total consumed (basic)   : ({total_epsilon_basic:.4f}, {DELTA})-DP  <-- {N_TRIALS} runs x e={epsilon}")
-print(f"    Total consumed (advanced): (~{total_epsilon_advanced:.4f}, ...)-DP   <-- approx. sqrt({N_TRIALS}) x e={epsilon}")
-print(f"    [!] The TOTAL budget is the actual privacy cost for this session.")
+print(f"    Per-run guarantee        : {epsilon}-DP  (pure DP, diffprivlib RF)")
+print(f"    NOTE: diffprivlib RF uses Exponential + Laplace mechanisms.")
+print(f"          Delta is NOT part of its guarantee (pure DP, not approx DP).")
+print(f"    Total consumed (basic)   : {total_epsilon_basic:.4f}-DP  <-- {N_TRIALS} runs x e={epsilon}")
+print(f"    Total consumed (advanced): ~{total_epsilon_advanced:.4f}-DP   <-- approx. sqrt({N_TRIALS}) x e={epsilon}")
+print(f"    [!] Sigma={sigma:.4f} shown above is Gaussian ref only (not used by model).")
 print(f"{'='*60}\n")
