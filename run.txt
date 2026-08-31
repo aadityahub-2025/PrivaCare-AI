@@ -105,19 +105,55 @@ Interpretation:
 
 
 ------------------------------------------------------------
-COMPARISON SUMMARY
+RUN 3 -- Epsilon (e) = 0.7  |  High-Moderate Privacy
+------------------------------------------------------------
+
+Command used:
+    python dp_train_test.py
+    (Enter: 0.7)
+
+Privacy Parameters:
+    Epsilon (e)          = 0.7
+    Delta   (d)          = 1e-05
+    Sigma   (s, Analytic GM) = 5.1665
+    Privacy Guarantee    = (0.7, 1e-05)-DP
+    Privacy Level        = HIGH (e < 1)
+
+Results:
+    Baseline Accuracy (No DP)           : 99.92%
+    DP Accuracy (3 trials avg)          : 86.25%
+    Standard Deviation across trials    : +/- 2.29%
+    Accuracy Drop (Privacy Cost)        : 13.67%
+    Normalization                       : Domain-bound clipping (data-independent)
+
+Trial-wise Breakdown:
+    Trial 1/3  (seed=42) : 85.25%
+    Trial 2/3  (seed=43) : 84.08%
+    Trial 3/3  (seed=44) : 89.42%
+
+Interpretation:
+    Good balance -- sits between e=0.5 (high privacy) and e=1.0 (balanced).
+    Variance (2.29%) lower than e=0.5 -- more stable results.
+    Suitable when stronger privacy than e=1.0 is needed with better accuracy
+    than e=0.5.
+
+
+------------------------------------------------------------
+COMPARISON SUMMARY (All 3 Runs)
 ------------------------------------------------------------
 
 | Epsilon | Privacy  | Sigma  | DP Accuracy      | Drop   |
 |---------|----------|--------|------------------|--------|
 |   0.5   | HIGH     | 7.0318 | 84.47% +/- 3.44% | 15.44% |
+|   0.7   | HIGH     | 5.1665 | 86.25% +/- 2.29% | 13.67% |
 |   1.0   | MOD-HIGH | 3.7306 | 88.39% +/- 1.86% | 11.53% |
 
 Key Takeaways:
-  1. Increasing epsilon from 0.5 to 1.0 gives +3.92% accuracy
-  2. Sigma halved (7.03 -> 3.73) meaning noise is significantly less
-  3. Variance dropped (3.44% -> 1.86%) -- more reliable predictions
-  4. Analytic GM sigma is used (valid for all epsilon)
+  1. Epsilon badhao -> Sigma ghata -> Accuracy badhi (clear tradeoff)
+  2. e=0.5 to e=0.7: +1.78% accuracy, sigma 7.03 -> 5.17
+  3. e=0.7 to e=1.0: +2.14% accuracy, sigma 5.17 -> 3.73
+  4. Variance consistently drops as epsilon increases (more stable)
+  5. Analytic GM sigma is used (valid for ALL epsilon values)
      Classical formula would give sigma=9.68 for e=0.5 (38% over-noisy!)
 
 ========================================================
