@@ -1,0 +1,124 @@
+==============================================================
+  PrivaCare-AI -- Experiment Results
+  Model    : Logistic Regression
+  Mechanism: Gaussian (Feature-level noise, Analytic GM)
+  DP Type  : (epsilon, delta)-DP
+  Dataset  : 6,000 rows | 13 features | 4 classes
+  Trials   : 3 runs per epsilon (mean +/- std reported)
+==============================================================
+
+  HOW TO RUN
+  ----------
+    python models/lr_gaussian.py
+    (Enter epsilon value when prompted)
+
+  NOTE ON MECHANISM:
+    Gaussian noise N(0, sigma^2) added directly to training features.
+    sigma = Analytic Gaussian Mechanism (Balle & Wang, NeurIPS 2018)
+    Sensitivity = 1.0 (from [0,1] normalization via DOMAIN_BOUNDS)
+    Guarantee: (epsilon, delta)-DP
+
+--------------------------------------------------------------
+  RUN 1 -- Epsilon (e) = 0.5  |  Privacy Level: HIGH
+--------------------------------------------------------------
+
+  Privacy Parameters:
+    Epsilon (e)     = 0.5
+    Sigma (s)       = 7.0318  (Analytic Gaussian Mechanism)
+    Delta (d)       = 1e-05
+    Privacy Type    : (0.5, 1e-05)-DP
+    Basic budget    : e_total = 1.5000  (= 3 x 0.5)
+    Adv. budget     : e_total ~ 0.8660  (= sqrt(3) x 0.5)
+
+  Results:
+    Baseline Accuracy (No DP) : 98.08%
+    DP Accuracy (avg)         : 27.56% +/- 3.61%
+    Accuracy Drop             : 70.53%
+    Macro F1 Score            : 0.1365
+    Macro Recall              : 0.2756
+
+  Trial-wise Breakdown:
+    Trial 1/3  (seed=42) : 25.00%
+    Trial 2/3  (seed=43) : 25.00%
+    Trial 3/3  (seed=44) : 32.67%
+
+  Per-Class Accuracy (last trial):
+    Normal         : 2/300   =   1%
+    Mild Risk      : 0/300   =   0%
+    Moderate Risk  : 93/300  =  31%
+    High Risk      : 297/300 =  99%
+
+--------------------------------------------------------------
+  RUN 2 -- Epsilon (e) = 0.7  |  Privacy Level: HIGH
+--------------------------------------------------------------
+
+  Privacy Parameters:
+    Epsilon (e)     = 0.7
+    Sigma (s)       = 5.1665  (Analytic Gaussian Mechanism)
+    Delta (d)       = 1e-05
+    Privacy Type    : (0.7, 1e-05)-DP
+    Basic budget    : e_total = 2.1000  (= 3 x 0.7)
+    Adv. budget     : e_total ~ 1.2124  (= sqrt(3) x 0.7)
+
+  Results:
+    Baseline Accuracy (No DP) : 98.08%
+    DP Accuracy (avg)         : 32.00% +/- 9.91%
+    Accuracy Drop             : 66.08%
+    Macro F1 Score            : 0.1756
+    Macro Recall              : 0.3200
+
+  Trial-wise Breakdown:
+    Trial 1/3  (seed=42) : 25.00%
+    Trial 2/3  (seed=43) : 25.92%
+    Trial 3/3  (seed=44) : 45.08%
+
+--------------------------------------------------------------
+  RUN 3 -- Epsilon (e) = 1.0  |  Privacy Level: MOD-HIGH
+--------------------------------------------------------------
+
+  Privacy Parameters:
+    Epsilon (e)     = 1.0
+    Sigma (s)       = 3.7306  (Analytic Gaussian Mechanism)
+    Delta (d)       = 1e-05
+    Privacy Type    : (1.0, 1e-05)-DP
+    Basic budget    : e_total = 3.0000  (= 3 x 1.0)
+    Adv. budget     : e_total ~ 1.7321  (= sqrt(3) x 1.0)
+
+  Results:
+    Baseline Accuracy (No DP) : 98.08%
+    DP Accuracy (avg)         : 33.44% +/- 11.57%
+    Accuracy Drop             : 64.64%
+    Macro F1 Score            : 0.1874
+    Macro Recall              : 0.3344
+
+  Trial-wise Breakdown:
+    Trial 1/3  (seed=42) : 25.00%
+    Trial 2/3  (seed=43) : 25.83%
+    Trial 3/3  (seed=44) : 49.50%
+
+--------------------------------------------------------------
+  COMPARISON SUMMARY (Logistic Regression + Gaussian)
+--------------------------------------------------------------
+
+  | Epsilon | Privacy  | Sigma  | DP Accuracy       | F1     | Drop   |
+  |---------|----------|--------|-------------------|--------|--------|
+  |   0.5   | HIGH     | 7.0318 | 27.56% +/- 3.61%  | 0.1365 | 70.53% |
+  |   0.7   | HIGH     | 5.1665 | 32.00% +/- 9.91%  | 0.1756 | 66.08% |
+  |   1.0   | MOD-HIGH | 3.7306 | 33.44% +/- 11.57% | 0.1874 | 64.64% |
+
+  Key Takeaways:
+    1. Baseline (No DP)    : 98.08%
+    2. Best DP result      : 33.44% at e=1.0
+    3. LR struggles with Gaussian noise (sigma=7.03 >> feature range)
+    4. High variance (±11.57% at e=1.0) -- unstable performance
+    5. LR is a linear model -- not suitable for this non-linear data
+
+  WHY ACCURACY IS LOW:
+    Logistic Regression uses a linear decision boundary.
+    Health data (Normal/Mild/Moderate/High Risk) is non-linear.
+    Even without DP, LR baseline (98.08%) < RF baseline (99.92%).
+    With Gaussian sigma=7.03 on [0,1] features, all structure is lost.
+
+==============================================================
+  Generated using: models/lr_gaussian.py
+==============================================================

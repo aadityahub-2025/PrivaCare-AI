@@ -1,0 +1,98 @@
+========================================================================
+  PrivaCare-AI -- COMBINED COMPARISON (All Models)
+  Dataset  : 6,000 rows | 13 features | 4 classes
+  Trials   : 3 runs per epsilon | Baselines: RF=99.92%, LR=98.08%
+========================================================================
+
+  ACCURACY TABLE  (mean +/- std across 3 trials)
+  -----------------------------------------------------------------------
+  Model                  Mechanism              |  e=0.5  |  e=0.7  |  e=1.0
+  -----------------------------------------------------------------------
+  Random Forest          Gaussian (diffprivlib) | 84.47%  | 86.25%  | 88.39%
+                                                | ±3.44%  | ±2.29%  | ±1.86%
+  -----------------------------------------------------------------------
+  Random Forest          Laplace  (feature)     | 38.44%  | 37.73%  | 47.38%
+                                                | ±5.47%  | ±4.22%  | ±7.41%
+  -----------------------------------------------------------------------
+  Logistic Regression    Gaussian (feature)     | 27.56%  | 32.00%  | 33.44%
+                                                | ±3.61%  | ±9.91%  | ±11.57%
+  -----------------------------------------------------------------------
+  Logistic Regression    Laplace  (feature)     | 33.44%  | 36.61%  | 41.19%
+                                                | ±10.39% | ±9.97%  | ±6.43%
+  -----------------------------------------------------------------------
+
+  F1 SCORE TABLE  (macro average)
+  -----------------------------------------------------------------------
+  Model                  Mechanism              |  e=0.5  |  e=0.7  |  e=1.0
+  -----------------------------------------------------------------------
+  Random Forest          Gaussian (diffprivlib) |  0.8294 |  0.8502 |  0.8730
+  Random Forest          Laplace  (feature)     |  0.3093 |  0.3238 |  0.4360
+  Logistic Regression    Gaussian (feature)     |  0.1365 |  0.1756 |  0.1874
+  Logistic Regression    Laplace  (feature)     |  0.1964 |  0.2341 |  0.3044
+  -----------------------------------------------------------------------
+
+  ACCURACY DROP TABLE  (Baseline - DP Accuracy)
+  -----------------------------------------------------------------------
+  Model                  Mechanism              |  e=0.5  |  e=0.7  |  e=1.0
+  -----------------------------------------------------------------------
+  Random Forest          Gaussian (diffprivlib) |  15.44% |  13.67% |  11.53%
+  Random Forest          Laplace  (feature)     |  61.47% |  62.19% |  52.54%
+  Logistic Regression    Gaussian (feature)     |  70.53% |  66.08% |  64.64%
+  Logistic Regression    Laplace  (feature)     |  64.64% |  61.47% |  56.89%
+  -----------------------------------------------------------------------
+
+  PRIVACY PARAMETERS TABLE
+  -----------------------------------------------------------------------
+  Model         Mechanism   | e=0.5         | e=0.7         | e=1.0
+  -----------------------------------------------------------------------
+  RF            Gaussian    | sigma=7.0318  | sigma=5.1665  | sigma=3.7306
+  RF            Laplace     | b=2.0000      | b=1.4286      | b=1.0000
+  LR            Gaussian    | sigma=7.0318  | sigma=5.1665  | sigma=3.7306
+  LR            Laplace     | b=2.0000      | b=1.4286      | b=1.0000
+  -----------------------------------------------------------------------
+  Gaussian: (epsilon, delta)-DP  | sigma from Analytic GM (Balle & Wang)
+  Laplace : pure epsilon-DP      | b = 1.0 / epsilon
+
+  BASELINES (No DP Applied)
+  -----------------------------------------------------------------------
+  Random Forest          : 99.92%
+  Logistic Regression    : 98.08%
+
+========================================================================
+  KEY FINDINGS
+========================================================================
+
+  1. BEST MODEL:
+     RF + diffprivlib Gaussian (84-88% accuracy at e=0.5-1.0)
+     --> Uses tree-level DP, much more efficient than feature-level noise
+
+  2. MECHANISM COMPARISON:
+     For RF: Gaussian (diffprivlib) >> Laplace (feature-level)
+     For LR: Laplace (feature) > Gaussian (feature) at same epsilon
+
+  3. PRIVACY-ACCURACY TRADEOFF:
+     All models: Higher epsilon -> lower privacy, higher accuracy
+     RF-Gaussian: Tradeoff is gradual (15.44% -> 11.53% drop)
+     LR-Gaussian: Still huge drop even at e=1.0 (64.64% drop)
+
+  4. DP GUARANTEE STRENGTH:
+     Gaussian: (epsilon, delta)-DP  -- approximate DP
+     Laplace:  pure epsilon-DP      -- exact DP (stronger claim)
+     Laplace gives stronger formal guarantee but lower utility here.
+
+  5. MODEL SUITABILITY:
+     Random Forest handles DP noise much better than Logistic Regression
+     Health risk data is non-linear -> RF is better suited
+
+  6. RESEARCH CONCLUSION:
+     "RF + diffprivlib Gaussian achieves 84.47% accuracy with
+      (0.5, 1e-5)-DP -- strong privacy guarantee for healthcare.
+      Feature-level noise is insufficient for high-privacy regimes."
+
+========================================================================
+  Individual result files:
+    results/rf_gaussian.txt  -- Trial-wise breakdown
+    results/rf_laplace.txt   -- Trial-wise breakdown
+    results/lr_gaussian.txt  -- Trial-wise breakdown
+    results/lr_laplace.txt   -- Trial-wise breakdown
+========================================================================
