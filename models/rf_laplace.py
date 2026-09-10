@@ -56,15 +56,15 @@ DOMAIN_BOUNDS = {
     "blood_oxygen":             (70.0, 100.0),
     "blood_pressure_systolic":  (60,    250),
     "blood_pressure_diastolic": (40,    150),
-    "glucose_level":            (50.0,  500.0),
-    "body_temperature":         (35.0,  42.0),
+    "glucose_level":            (30.0,  300.0),   # FIX: data min=32.5 (lo was 50 → clipping)
+    "body_temperature":         (94.0,  107.0),   # FIX: data in FAHRENHEIT (was Celsius 35-42)
     "respiratory_rate":         (8,     40),
     # -- Wearable / Lifestyle -----------------------------------------------
-    "activity_level":           (0.0,   10.0),
-    "sleep_quality":            (0.0,   10.0),
-    "stress_level":             (0.0,   10.0),
+    "activity_level":           (0.0,   1.0),     # FIX: data is 0-1 scale (was 0-10 → 8% range used)
+    "sleep_quality":            (0.0,   1.0),     # FIX: data is 0-1 scale (was 0-10 → 9% range used)
+    "stress_level":             (0.0,   1.0),     # FIX: data is 0-1 scale (was 0-10 → 10% range used)
     "hrv_sdnn":                 (5.0,  200.0),
-    "steps_count":              (0,    50000),
+    "steps_count":              (0,    15000),    # FIX: data max=11983 (was 50000 → 24% range used)
     "calories_burned":          (0,     5000),
     # -- Demographics -------------------------------------------------------
     "age":                      (0,     120),
@@ -106,9 +106,9 @@ def normalize_with_domain_bounds(X, feature_names, fallback_bounds=None):
 #  LAPLACE NOISE INJECTION
 #  -------------------------------------------------------------------------
 #  Laplace Mechanism: Add Lap(0, b) noise where b = sensitivity / epsilon
-#  sensitivity = 1.0 (from [0,1] normalization via DOMAIN_BOUNDS)
-#  Guarantee: pure epsilon-DP per feature
-#  Under basic composition across N features: N*epsilon total
+#  L1 Sensitivity = k (number of continuous features), because each feature
+#  is normalized to [0,1], and a single row can change in all k features.
+#  Guarantee: pure epsilon-DP for the entire row.
 #
 #  Key difference from Gaussian:
 #    Gaussian  → (epsilon, delta)-DP  [approximate DP, needs delta]
@@ -128,7 +128,10 @@ def add_laplace_dp_noise(X_norm, feature_names, epsilon, rng):
         X_noisy      : noisy training array (clipped back to [0,1])
         b            : Laplace scale parameter used
     """
-    b = 1.0 / epsilon  # sensitivity=1.0 / epsilon
+    continuous_features = [c for c in feature_names if c not in BINARY_FEATURES]
+    k = len(continuous_features)
+    b = k / epsilon  # L1 sensitivity = k
+
     X_noisy = X_norm.copy()
     for i, col in enumerate(feature_names):
         if col in BINARY_FEATURES:
@@ -227,19 +230,18 @@ except ValueError:
     print("  Invalid input -- defaulting to epsilon = 0.5")
     epsilon = 0.5
 
-b = 1.0 / epsilon  # Laplace scale parameter
-total_epsilon_basic    = N_TRIALS * epsilon
-total_epsilon_advanced = math.sqrt(N_TRIALS) * epsilon
+b = len([c for c in feature_cols if c not in BINARY_FEATURES]) / epsilon
+total_epsilon_basic = N_TRIALS * epsilon
 
 print(f"\n  --> Epsilon (e, per run)    = {epsilon}")
-print(f"      Laplace scale (b=1/e)   = {b:.4f}  << ACTUALLY USED for noise")
+print(f"      Laplace scale (b=k/e)   = {b:.4f}  << ACTUALLY USED for noise (k=num_continuous_features)")
 print(f"      Mechanism               : Laplace (pure epsilon-DP)")
 print(f"      NO delta needed         : Laplace gives exact DP guarantee")
 print(f"      Trials                  = {N_TRIALS} runs")
 print(f"\n  [!] COMPOSITION WARNING:")
 print(f"      {N_TRIALS} trials on same data -> TOTAL consumed:")
 print(f"        Basic composition    : e_total = {total_epsilon_basic:.4f}  (= {N_TRIALS} x {epsilon})")
-print(f"        Advanced composition : e_total ~ {total_epsilon_advanced:.4f}  (= sqrt({N_TRIALS}) x {epsilon})")
+print(f"        (Advanced comp. not applicable for pure DP without adding delta)")
 print(f"  " + "-"*58 + "\n")
 
 # ===========================================================================
@@ -321,14 +323,14 @@ print(f"  DP Accuracy ({N_TRIALS} trials, e={epsilon})          : {acc_dp * 100:
 print(f"  DP Macro F1 Score                      : {f1_dp:.4f}")
 print(f"  DP Macro Recall                        : {rec_dp:.4f}")
 print(f"  Accuracy Drop (Privacy Cost)           : {(acc_baseline - acc_dp) * 100:.2f}%")
-print(f"  Laplace Scale (b = 1/epsilon)          : {b:.4f}")
+print(f"  Laplace Scale (b = k/epsilon)          : {b:.4f}")
 print(f"  Normalization                          : Domain-bound clipping (data-independent)")
 print(f"  " + "-"*58)
 print(f"  PRIVACY BUDGET ACCOUNTING:")
 print(f"    Mechanism                : Laplace Mechanism (Dwork & Roth, 2014)")
 print(f"    Per-run guarantee        : pure {epsilon}-DP  (NO delta needed)")
 print(f"    Total consumed (basic)   : {total_epsilon_basic:.4f}-DP  <-- {N_TRIALS} runs x e={epsilon}")
-print(f"    Total consumed (advanced): ~{total_epsilon_advanced:.4f}-DP  <-- sqrt({N_TRIALS}) x e={epsilon}")
+print(f"    (Note: Advanced composition converts pure DP to approximate DP, so not used here)")
 print(f"  " + "-"*58)
 print(f"\n  PER-CLASS REPORT (last trial):\n")
 print(report)
