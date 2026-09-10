@@ -141,8 +141,8 @@ def add_laplace_dp_noise(X_norm, feature_names, epsilon, rng):
 # ===========================================================================
 #  1. LOAD DATA
 # ===========================================================================
-csv_path = "data/dataset.csv"
-df = pd.read_csv(csv_path)
+csv_path = "datasets/dataset_2_rf_laplace.json"
+df = pd.read_json(csv_path)
 
 if "health_event" in df.columns:
     target_col = "health_event"

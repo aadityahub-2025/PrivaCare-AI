@@ -187,8 +187,8 @@ def normalize_with_domain_bounds(X, feature_names, fallback_bounds=None):
 # ===========================================================================
 #  1. LOAD DATA
 # ===========================================================================
-csv_path = "data/dataset.csv"
-df = pd.read_csv(csv_path)
+csv_path = "datasets/dataset_1_rf_gaussian.json"
+df = pd.read_json(csv_path)
 
 # Auto-detect target column
 if "health_event" in df.columns:
