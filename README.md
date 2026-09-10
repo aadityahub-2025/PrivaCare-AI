@@ -1,6 +1,6 @@
 # 🏥 PrivaCare-AI
 
-> **Differential Privacy for Healthcare AI** — Protecting patient data with IBM's `diffprivlib` Analytic Gaussian Mechanism while maintaining predictive accuracy using Random Forest classifiers.
+> **Differential Privacy for Healthcare AI** — Protecting patient data while maintaining predictive accuracy by comparing 4 DP model+mechanism combinations across multiple epsilon values.
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
 ![sklearn](https://img.shields.io/badge/scikit--learn-1.x-orange?logo=scikit-learn&logoColor=white)
@@ -12,14 +12,14 @@
 
 ## 📌 Overview
 
-**PrivaCare-AI** is a B.Tech research project that applies **Differential Privacy (DP)** to healthcare machine learning pipelines. It uses IBM's `diffprivlib` library to train a DP-protected Random Forest with rigorous correctness — providing algorithmic, model-level privacy guarantees — and compares it against a baseline (non-private) model. The project quantifies the **Privacy–Accuracy Trade-off** at different epsilon values.
+**PrivaCare-AI** is a B.Tech research project that applies **Differential Privacy (DP)** to healthcare machine learning. It compares **4 model + mechanism combinations** across 3 epsilon values (ε = 0.5, 0.7, 1.0), quantifying the **Privacy–Accuracy Trade-off** on wearable health sensor data.
 
 ### 🎯 Key Objectives
-- Apply **(ε, δ)-Differential Privacy** using IBM `diffprivlib` on wearable health sensor data
-- Use **data-independent feature bounds** (clinical domain knowledge) to preserve formal DP guarantee
-- Train and compare **baseline vs. DP-protected** Random Forest classifiers across multiple trials
-- Analyze the **Privacy-Accuracy Trade-off** using the Analytic Gaussian Mechanism (Balle & Wang, 2018)
-- Generate rich visualizations: confusion matrix, ROC curves, class distribution, noise effects, and more
+- Compare **Random Forest** vs **Logistic Regression** under differential privacy
+- Compare **Gaussian Mechanism** vs **Laplace Mechanism** for DP noise injection
+- Use **data-independent domain bounds** to preserve formal DP guarantees
+- Run **3 trials per experiment** (mean ± std reported for reliability)
+- Generate rich **visualizations** per model: confusion matrix, ROC curves, feature importance, and more
 
 ---
 
@@ -29,78 +29,104 @@
 PrivaCare-AI/
 │
 ├── data/
-│   └── dataset.csv                  # Primary health dataset (6,000 samples, 13 features)
+│   └── dataset.csv                        # Master dataset (6,000 rows, 13 features) — CSV
 │
-├── results/
-│   └── plots/                       # All generated visualizations (10 plots)
-│       ├── 0_DASHBOARD.png          # Master summary dashboard
-│       ├── 1_confusion_matrix.png
-│       ├── 2_feature_importance.png
-│       ├── 3_class_distribution.png
-│       ├── 4_roc_curves.png
-│       ├── 5_privacy_tradeoff.png
-│       ├── 6_dp_noise_effect.png
-│       ├── 7_feature_per_class.png
-│       ├── 8_correlation_heatmap.png
-│       └── 9_confidence.png
+├── datasets/                              # Model-specific datasets (JSON format)
+│   ├── dataset_1_rf_gaussian.json         # Used by rf_gaussian.py
+│   ├── dataset_2_rf_laplace.json          # Used by rf_laplace.py
+│   ├── dataset_3_lr_gaussian.json         # Used by lr_gaussian.py
+│   └── dataset_4_lr_laplace.json          # Used by lr_laplace.py
 │
-├── dp_train_test.py                 # DP Random Forest trainer (interactive, with diffprivlib)
-├── visualize_results.py             # Generate all 10 result plots (auto-adaptive)
-├── requirements.txt                 # Python dependencies
-├── LICENSE                          # MIT License
-├── .gitignore
+├── models/                                # 4 DP training scripts
+│   ├── rf_gaussian.py                     # Random Forest + Gaussian (diffprivlib)
+│   ├── rf_laplace.py                      # Random Forest + Laplace (feature-level)
+│   ├── lr_gaussian.py                     # Logistic Regression + Gaussian (feature-level)
+│   └── lr_laplace.py                      # Logistic Regression + Laplace (feature-level)
+│
+├── visualizations/                        # 4 visualization scripts (10 plots each)
+│   ├── rf_gaussian.py                     # → saves to results/rf_gaussian/
+│   ├── rf_laplace.py                      # → saves to results/rf_laplace/
+│   ├── lr_gaussian.py                     # → saves to results/lr_gaussian/
+│   └── lr_laplace.py                      # → saves to results/lr_laplace/
+│
+├── results/                               # Experiment result files
+│   ├── rf_gaussian.txt                    # Trial-wise results (3 epsilons)
+│   ├── rf_laplace.txt                     # Trial-wise results (3 epsilons)
+│   ├── lr_gaussian.txt                    # Trial-wise results (3 epsilons)
+│   ├── lr_laplace.txt                     # Trial-wise results (3 epsilons)
+│   └── compare_all.txt                    # Combined comparison (all 4 models)
+│
+├── compare_all.py                         # Live comparison script (all models × epsilons)
+├── requirements.txt                       # Python dependencies
+├── LICENSE                                # MIT License
 └── README.md
 ```
 
 ---
 
-## ⚙️ How It Works
+## 🔬 Models & Mechanisms
 
-### Privacy Mechanism — Analytic Gaussian Mechanism (Balle & Wang, 2018)
+| # | Model | Mechanism | DP Type | File |
+|---|-------|-----------|---------|------|
+| 1 | Random Forest | Gaussian (diffprivlib) | (ε, δ)-DP | `models/rf_gaussian.py` |
+| 2 | Random Forest | Laplace (feature-level) | pure ε-DP | `models/rf_laplace.py` |
+| 3 | Logistic Regression | Gaussian (feature-level) | (ε, δ)-DP | `models/lr_gaussian.py` |
+| 4 | Logistic Regression | Laplace (feature-level) | pure ε-DP | `models/lr_laplace.py` |
 
-This project uses **IBM's `diffprivlib`** which implements privacy at the **algorithmic level** inside the Random Forest training process. The noise scale **σ** is computed via the **Analytic Gaussian Mechanism** — valid for **all ε > 0** (unlike the classical formula which is only proven for ε < 1):
+### Key Difference: Where is noise applied?
 
-$$\sigma^* = \min \left\{ \sigma : \Phi\!\left(\frac{\Delta f}{2\sigma} - \frac{\varepsilon\sigma}{\Delta f}\right) - e^{\varepsilon}\,\Phi\!\left(-\frac{\Delta f}{2\sigma} - \frac{\varepsilon\sigma}{\Delta f}\right) \leq \delta \right\}$$
+- **RF Gaussian (diffprivlib):** Noise at tree-level (split selection + leaf values) — more efficient
+- **RF/LR Laplace/Gaussian (feature-level):** Noise added to training features before fitting
 
-| Symbol | Meaning |
-|--------|---------|
-| **ε (epsilon)** | Privacy budget — smaller = more private |
-| **δ (delta)** | Failure probability (fixed at `1e-5`) |
-| **Δf** | L∞-sensitivity = 1.0 (data-independent, domain-bound normalization) |
-| **σ** | Minimum noise standard deviation (Analytic GM) |
+---
 
-This provides a formal **(ε, δ)-DP guarantee**: an adversary cannot identify any individual patient's record from the model output.
+## ⚙️ Privacy Mechanisms
 
-### DP Correctness Fixes Applied
+### 1. Gaussian Mechanism — (ε, δ)-DP
+Uses **Analytic Gaussian Mechanism** (Balle & Wang, NeurIPS 2018):
 
-| Fix | Issue | Solution |
-|-----|-------|----------|
-| **1** | Sensitivity from data (MinMaxScaler) | `DOMAIN_BOUNDS` dict with clinical ranges — data-independent |
-| **2** | Classical σ formula only valid for ε < 1 | Analytic Gaussian Mechanism (Balle & Wang, 2018) |
-| **3** | Epsilon composition not tracked | Per-run composition warning printed at runtime |
-| **4** | Single run — unreliable results | `N_TRIALS = 3` runs, mean ± std reported |
-| **5** | Binary features getting Gaussian noise | `BINARY_FEATURES` set, correct `(0,1)` bounds passed |
-| **6** | No fixed seeds — non-reproducible | `seed = BASE_SEED + trial_idx` for each trial |
-| **7** | Label (target) unprotected | Runtime note — standard DP-ML design (Abadi et al. 2016) |
+$$\sigma^* = \min \left\{ \sigma : \Phi\!\left(\frac{1}{2\sigma} - \varepsilon\sigma\right) - e^{\varepsilon}\,\Phi\!\left(-\frac{1}{2\sigma} - \varepsilon\sigma\right) \leq \delta \right\}$$
 
-### Model Pipeline
+Valid for **all ε > 0** (classical formula only valid for ε < 1).
 
-```
-Raw CSV Data
-    │
-    ▼
-Feature Selection + Label Encoding
-    │
-    ▼
-Train / Test Split (80 / 20, stratified)
-    │
-    ▼
-Domain-Bound Normalization → [0, 1]   ← data-independent (clinical bounds)
-    │
-    ├──── Baseline RF (sklearn, no privacy) ──────► Baseline Accuracy
-    │
-    └──── DP Random Forest (diffprivlib, ε, δ) ───► DP Accuracy (avg of N_TRIALS)
-```
+| ε | δ | σ (Analytic GM) |
+|---|---|-----------------|
+| 0.5 | 1e-5 | 7.0318 |
+| 0.7 | 1e-5 | 5.1665 |
+| 1.0 | 1e-5 | 3.7306 |
+
+### 2. Laplace Mechanism — pure ε-DP
+$$b = \frac{\text{sensitivity}}{\varepsilon} = \frac{1.0}{\varepsilon}$$
+
+Stronger formal guarantee — **no delta needed**.
+
+| ε | b (Laplace scale) |
+|---|------------------|
+| 0.5 | 2.0000 |
+| 0.7 | 1.4286 |
+| 1.0 | 1.0000 |
+
+---
+
+## 📊 Results Summary
+
+### Accuracy (mean ± std, 3 trials per ε)
+
+| Model | Mechanism | ε=0.5 | ε=0.7 | ε=1.0 |
+|-------|-----------|-------|-------|-------|
+| **Random Forest** | **Gaussian (diffprivlib)** | **84.47% ±3.44%** | **86.25% ±2.29%** | **88.39% ±1.86%** |
+| Random Forest | Laplace (feature) | 38.44% ±5.47% | 37.73% ±4.22% | 47.38% ±7.41% |
+| Logistic Regression | Gaussian (feature) | 27.56% ±3.61% | 32.00% ±9.91% | 33.44% ±11.57% |
+| Logistic Regression | Laplace (feature) | 33.44% ±10.39% | 36.61% ±9.97% | 41.19% ±6.43% |
+
+> **Baselines (No DP):** RF = 99.92% | LR = 98.08%
+
+### Key Findings
+1. **RF + diffprivlib Gaussian** consistently best (84–88% at ε=0.5–1.0)
+2. Feature-level noise (all others) causes large accuracy drop at high-privacy regime
+3. **Higher ε → less privacy, more accuracy** — clear tradeoff across all models
+4. **Laplace = pure ε-DP** (stronger formal guarantee) but lower utility here
+5. RF handles noise better than LR for this non-linear healthcare dataset
 
 ---
 
@@ -125,129 +151,76 @@ cd PrivaCare-AI
 
 ## 🧪 Usage
 
-### Step 1 — Train Models
-
-Trains a baseline RF and a DP-protected RF (3 trials, averaged). Prompts for epsilon at runtime.
+### Run a Single Model
 
 ```bash
-python dp_train_test.py
+# Random Forest + Gaussian (best accuracy)
+python models/rf_gaussian.py
+
+# Random Forest + Laplace
+python models/rf_laplace.py
+
+# Logistic Regression + Gaussian
+python models/lr_gaussian.py
+
+# Logistic Regression + Laplace
+python models/lr_laplace.py
 ```
 
-**Example output:**
+Each model will prompt for an epsilon value:
 ```
-========================================================
-  PrivaCare-AI -- Differential Privacy Training
-========================================================
-
-  Dataset : 6,000 rows | 13 features
-  Target  : 'health_event' | 4 classes
-
-  +--[ PRIVACY SCOPE NOTE ]---...---+
-  | Target label is NOT DP-protected (standard DP-ML design) |
-  +----------------------------------------------------------+
-
-  Enter Epsilon value (e.g. 0.1, 0.5, 1.0) [Default 0.5]: 0.5
-  --> Epsilon (e)           = 0.5
-      Delta   (d)           = 1e-05
-      Sigma   (s, analytic) = 7.0318
-      Trials                = 3 runs (results averaged)
-
-  [!] COMPOSITION WARNING: Each run consumes epsilon = 0.5 ...
-
-[1] Baseline Accuracy : 99.92%
-
-[2] DP Random Forest (3 trials | epsilon=0.5 | diffprivlib)
-    Trial 1/3  (seed=42): 80.17%
-    Trial 2/3  (seed=43): 88.58%
-    Trial 3/3  (seed=44): 84.67%
-
-========================================================
-  RESULT SUMMARY
-========================================================
-  Baseline Accuracy (No DP)           : 99.92%
-  DP Accuracy (e=0.5, 3 trials)       : 84.47% +/- 3.44%
-  Accuracy Drop (Privacy Cost)        : 15.44%
-  Noise Sigma (Analytic GM)           : 7.0318
-  Privacy Guarantee                   : (0.5, 1e-05)-DP
-  Normalization                       : Domain-bound clipping (data-independent)
-========================================================
+Enter Epsilon value (e.g. 0.1, 0.5, 1.0) [Default 0.5]: 0.5
 ```
 
----
-
-### Step 2 — Generate Visualizations
+### Run Full Comparison (All Models)
 
 ```bash
-python visualize_results.py
+python compare_all.py
 ```
 
-Enter the **same epsilon** as Step 1. Saves **10 plots** to `results/plots/`.
+Runs all 4 models × 3 epsilons × 3 trials and prints a complete comparison table.
+
+### Generate Visualizations
+
+```bash
+# After running a model, generate its plots
+python visualizations/rf_gaussian.py
+python visualizations/rf_laplace.py
+python visualizations/lr_gaussian.py
+python visualizations/lr_laplace.py
+```
+
+Each generates 10 plots saved to `results/<model_name>/`.
+
+### View Experiment Results
+
+All results are pre-documented in `results/`:
+
+```bash
+# Individual model results (trial-wise breakdown)
+results/rf_gaussian.txt
+results/rf_laplace.txt
+results/lr_gaussian.txt
+results/lr_laplace.txt
+
+# Combined comparison table
+results/compare_all.txt
+```
 
 ---
 
-## 📊 Results
+## 🖼️ Visualizations (per model)
 
-### Performance Summary (ε = 0.5, δ = 1e-5)
-
-| Metric | Baseline (No DP) | DP Model (ε=0.5, 3 trials) |
-|--------|:----------------:|:--------------------------:|
-| **Test Accuracy** | 99.92% | **84.47% ± 3.44%** |
-| **Noise σ (Analytic GM)** | 0.0 | 7.0318 |
-| **Privacy Guarantee** | ❌ None | ✅ (0.5, 1e-5)-DP |
-| **Normalization** | MinMaxScaler | Domain-bound clipping |
-
-> **Key insight:** The variance (±3.44%) across 3 trials reveals the *stochastic cost* of DP training. The Analytic GM computes σ=7.03 for ε=0.5 — significantly more accurate than the classical formula (which gives σ=9.69, over-adding noise by ~38%).
-
-### Per-Class Accuracy (Confusion Matrix, ε=0.5)
-
-| Class | Correctly Predicted | Accuracy |
-|-------|:-------------------:|:--------:|
-| Normal | 299 / 300 | **100%** ✅ |
-| Mild Risk | 70 / 300 | **23%** ⚠️ |
-| Moderate Risk | 300 / 300 | **100%** ✅ |
-| High Risk | 293 / 300 | **98%** ✅ |
-
-> ⚠️ **Mild Risk confusion:** 71% of Mild Risk patients are misclassified as Moderate Risk. This is a known effect of DP noise on borderline/adjacent classes — the added noise blurs the decision boundary between similar classes.
-
-### Privacy Level Classification
-
-| Epsilon (ε) | Privacy Level | σ (Analytic GM) | Typical Use Case |
-|:-----------:|:-------------:|:---------------:|:----------------:|
-| ≤ 0.5 | 🔒 High Privacy | ~7.03 | Highly sensitive medical data |
-| 0.5 – 2.0 | 🔐 Moderate-High | ~1.9–7.0 | Clinical research |
-| 2.0 – 7.0 | 🔑 Moderate | ~0.6–1.9 | General health analytics |
-| > 7.0 | 🔓 Low Privacy | < 0.6 | Non-sensitive aggregates |
-
-### Feature Importance (Baseline RF — from actual run)
-
-| Rank | Feature | Importance |
-|:----:|---------|:----------:|
-| 1 | Glucose Level | **18.6%** |
-| 2 | Stress Level | 16.0% |
-| 3 | Blood Pressure (Systolic) | 15.9% |
-| 4 | Sleep Quality | 14.7% |
-| 5 | Blood Pressure (Diastolic) | 12.9% |
-| 6 | HRV SDNN | 5.9% |
-| 7 | Heart Rate | 4.6% |
-| 8 | Steps Count | 3.3% |
-| 9 | Activity Level | 2.8% |
-
----
-
-## 🖼️ Visualizations
-
-All plots are saved in `results/plots/` after running `visualize_results.py`.
-
-| Plot File | Description |
-|-----------|-------------|
-| `0_DASHBOARD.png` | Master summary dashboard (all metrics in one view) |
-| `1_confusion_matrix.png` | Class-wise prediction confusion with per-class % |
-| `2_feature_importance.png` | Baseline RF feature ranking |
-| `3_class_distribution.png` | Target class balance — **Normal / Mild Risk / Moderate Risk / High Risk** |
-| `4_roc_curves.png` | ROC curve per class (One vs Rest, with AUC) |
-| `5_privacy_tradeoff.png` | ε vs σ (Analytic GM) + Gaussian noise distributions |
+| Plot | Description |
+|------|-------------|
+| `0_DASHBOARD.png` | Master summary dashboard |
+| `1_confusion_matrix.png` | Class-wise prediction confusion |
+| `2_feature_importance.png` | Feature ranking (RF: importances, LR: coefficients) |
+| `3_class_distribution.png` | Target class balance |
+| `4_roc_curves.png` | ROC curve per class (One vs Rest, AUC) |
+| `5_privacy_tradeoff.png` | ε vs noise parameter curve |
 | `6_dp_noise_effect.png` | Original vs DP-noisy feature distributions |
-| `7_feature_per_class.png` | Feature distributions separated by health class |
+| `7_feature_per_class.png` | Feature distributions per health class |
 | `8_correlation_heatmap.png` | Feature correlation matrix |
 | `9_confidence.png` | Model prediction confidence per class |
 
@@ -255,19 +228,16 @@ All plots are saved in `results/plots/` after running `visualize_results.py`.
 
 ## 🧠 Dataset
 
-- **Source:** Synthetic wearable health sensor data
-- **Samples:** 6,000 patient records
-- **Features (13):**
-  `heart_rate`, `blood_oxygen`, `blood_pressure_systolic`, `blood_pressure_diastolic`,
-  `glucose_level`, `body_temperature`, `respiratory_rate`, `activity_level`,
-  `sleep_quality`, `stress_level`, `hrv_sdnn`, `steps_count`, `calories_burned`
-- **Target:** `health_event` — 4 health classes (balanced, 1,500 each):
-  - `0` → **Normal**
-  - `1` → **Mild Risk**
-  - `2` → **Moderate Risk**
-  - `3` → **High Risk**
-- **Split:** 80% train / 20% test (stratified)
-- **Note:** Dataset is synthetic — no real patient records. For production use, a data ethics review and IRB approval would be required.
+| Property | Value |
+|----------|-------|
+| **Source** | Synthetic wearable health sensor data |
+| **Samples** | 6,000 patient records |
+| **Features** | 13 (heart_rate, blood_oxygen, bp_systolic, bp_diastolic, glucose_level, body_temperature, respiratory_rate, activity_level, sleep_quality, stress_level, hrv_sdnn, steps_count, calories_burned) |
+| **Target** | `health_event` — 4 classes (Normal, Mild Risk, Moderate Risk, High Risk) |
+| **Balance** | 1,500 samples per class (balanced) |
+| **Split** | 80% train / 20% test (stratified) |
+| **Master file** | `data/dataset.csv` (CSV) |
+| **Model datasets** | `datasets/dataset_N_<model>.json` (JSON, same data) |
 
 ---
 
@@ -275,19 +245,19 @@ All plots are saved in `results/plots/` after running `visualize_results.py`.
 
 ### (ε, δ)-Differential Privacy
 
-A randomized mechanism **M** satisfies **(ε, δ)-DP** if for all neighboring datasets **D**, **D'** (differing in one record), and all outputs **S**:
+A randomized mechanism **M** satisfies **(ε, δ)-DP** if for all neighboring datasets **D, D'** and all outputs **S**:
 
 $$\Pr[M(D) \in S] \leq e^{\varepsilon} \cdot \Pr[M(D') \in S] + \delta$$
 
-### Analytic Gaussian Mechanism (Balle & Wang, NeurIPS 2018)
+### Privacy Composition (3 trials)
 
-The **Analytic GM** computes the minimum σ satisfying (ε, δ)-DP for **any ε > 0** via binary search on the normal CDF — as opposed to the classical formula which is only valid for ε < 1. This project uses the Analytic GM for both training (diffprivlib internally) and all σ display values in plots.
+Each run on the same dataset consumes ε from the total privacy budget:
+- **Basic composition:** 3 runs → ε_total = 3 × ε
+- **Advanced composition:** ε_total ≈ √3 × ε
 
-### Privacy Composition
+### Normalization (Data-Independent)
 
-Each training run on the same dataset consumes ε from the total privacy budget:
-- **Basic composition:** k runs → total loss = k × ε
-- **Advanced composition** (Dwork et al. 2010): O(√k · ε)
+All features are clipped and scaled using clinical **DOMAIN_BOUNDS** (not data statistics), ensuring L∞-sensitivity = 1.0 without leaking any information from the dataset.
 
 ---
 
@@ -296,53 +266,25 @@ Each training run on the same dataset consumes ε from the total privacy budget:
 | Component | Technology |
 |-----------|------------|
 | Language | Python 3.10+ |
-| ML Model | `scikit-learn` RandomForestClassifier (baseline) |
-| DP Model | `diffprivlib` DP RandomForestClassifier (IBM) |
+| ML Models | `scikit-learn` (RF, LR) |
+| DP RF | `diffprivlib` (IBM) — tree-level DP |
 | Analytic GM | `scipy` — binary search on normal CDF |
 | Data Processing | `pandas`, `numpy` |
-| Visualization | `matplotlib` (dark theme, 10 plots) |
-| Evaluation | Accuracy ± std (3 trials), AUC-ROC, Confusion Matrix |
-
----
-
-## 📁 Key Files
-
-| File | Purpose |
-|------|---------|
-| [`dp_train_test.py`](dp_train_test.py) | Interactive training — baseline + DP RF, multi-trial, full composition accounting |
-| [`visualize_results.py`](visualize_results.py) | Auto-adaptive visualization engine (10 plots, Analytic GM sigma) |
-| [`requirements.txt`](requirements.txt) | All Python dependencies |
-| [`run.txt`](run.txt) | Experiment results for ε=0.5 and ε=1.0 with per-trial breakdown |
-
----
-
-## 🔧 DP Correctness Fixes (Round 2)
-
-| Fix | Issue | Solution |
-|-----|-------|----------|
-| **8** | Sigma displayed but never passed to model | Added `[display only]` label — diffprivlib uses same Analytic GM internally |
-| **9** | N_TRIALS=3 but only per-run ε shown | Final summary now shows **TOTAL consumed budget** (basic + advanced composition) |
-| **10** | Test fallback used test's own min/max | Train-computed fallback bounds **reused** for test normalization |
-| **11** | Gender: non-Male silently mapped to 0 | Explicit `GENDER_MAP` dict + `ValueError` on any unknown gender value |
-| **12** | Missing feature bounds silently continued | `STRICT_DOMAIN_BOUNDS=True` — halts execution if any feature missing from `DOMAIN_BOUNDS` |
+| Visualization | `matplotlib` (dark theme, 10 plots per model) |
+| Evaluation | Accuracy ± std, Macro F1, Macro Recall, AUC-ROC |
 
 ---
 
 ## 🔮 Planned Extensions
 
-The system architecture diagram includes layers not yet implemented in code:
-
-| Layer | Status | Notes |
-|-------|--------|-------|
-| **IoT Sensor Integration** | 🔵 Planned | Real-time wearable data ingestion via MQTT/REST |
-| **Blockchain Audit Trail** | 🔵 Planned | Immutable logging of DP training events on a permissioned chain |
-| **PATE Framework** | 🔵 Planned | Label-private training for sensitive health targets |
-| **Federated Learning** | 🔵 Planned | Multi-hospital DP training without data sharing |
-
-> These are research directions for future iterations. Current code focuses on the core DP-ML pipeline with formal correctness.
+| Feature | Status |
+|---------|--------|
+| IoT Sensor Integration | 🔵 Planned |
+| Blockchain Audit Trail | 🔵 Planned |
+| PATE Framework | 🔵 Planned |
+| Federated Learning | 🔵 Planned |
 
 ---
-
 
 ## 📄 License
 
