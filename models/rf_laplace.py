@@ -25,6 +25,7 @@ import math
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
+from diffprivlib.models import RandomForestClassifier as DPRandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import (
@@ -103,42 +104,17 @@ def normalize_with_domain_bounds(X, feature_names, fallback_bounds=None):
 
 
 # ===========================================================================
-#  LAPLACE NOISE INJECTION
+#  LAPLACE NOISE INJECTION (DIFFPRIVLIB)
 #  -------------------------------------------------------------------------
-#  Laplace Mechanism: Add Lap(0, b) noise where b = sensitivity / epsilon
-#  L1 Sensitivity = k (number of continuous features), because each feature
-#  is normalized to [0,1], and a single row can change in all k features.
-#  Guarantee: pure epsilon-DP for the entire row.
-#
-#  Key difference from Gaussian:
-#    Gaussian  → (epsilon, delta)-DP  [approximate DP, needs delta]
-#    Laplace   → pure epsilon-DP      [exact DP, no delta needed]
+#  Instead of adding Laplace noise to the input features directly
+#  (which obliterates high-dimensional data), we use diffprivlib's
+#  RandomForestClassifier. This applies Tree-based DP, injecting
+#  noise into the split counts and leaf distributions.
+#  Guarantee: pure epsilon-DP for the entire model.
 # ===========================================================================
-def add_laplace_dp_noise(X_norm, feature_names, epsilon, rng):
-    """
-    Add Laplace noise Lap(0, sensitivity/epsilon) to training features.
+# The manual add_laplace_dp_noise function has been removed. 
+# Diffprivlib handles noise injection internally during .fit()
 
-    Args:
-        X_norm       : normalized training array (values in [0,1])
-        feature_names: list of feature column names
-        epsilon      : privacy budget per feature (sensitivity=1.0)
-        rng          : numpy RandomState for reproducibility
-
-    Returns:
-        X_noisy      : noisy training array (clipped back to [0,1])
-        b            : Laplace scale parameter used
-    """
-    continuous_features = [c for c in feature_names if c not in BINARY_FEATURES]
-    k = len(continuous_features)
-    b = k / epsilon  # L1 sensitivity = k
-
-    X_noisy = X_norm.copy()
-    for i, col in enumerate(feature_names):
-        if col in BINARY_FEATURES:
-            continue  # Skip binary features (Laplace DP inappropriate for 0/1)
-        noise = rng.laplace(loc=0.0, scale=b, size=X_norm.shape[0])
-        X_noisy[:, i] = np.clip(X_noisy[:, i] + noise, 0.0, 1.0)
-    return X_noisy, b
 
 
 # ===========================================================================
@@ -264,7 +240,7 @@ print(f"    Baseline Recall   : {rec_baseline:.4f}\n")
 #  6. DP RF — LAPLACE MECHANISM, MULTIPLE TRIALS
 # ===========================================================================
 print(f"[2] Training DP RF with Laplace Mechanism ({N_TRIALS} trials | e={epsilon})...")
-print(f"    Laplace scale b={b:.4f} | sensitivity=1.0 | pure epsilon-DP\n")
+print(f"    Using diffprivlib.models.RandomForestClassifier (Tree-based DP)\n")
 
 trial_accs = []
 trial_f1s  = []
@@ -275,14 +251,14 @@ for trial in range(N_TRIALS):
     seed = BASE_SEED + trial
     rng  = np.random.RandomState(seed)
 
-    X_train_noisy, b_used = add_laplace_dp_noise(
-        X_train_norm, feature_cols, epsilon, rng
+    # Instead of manual feature noise, pass bounds to diffprivlib RF
+    rf_dp = DPRandomForestClassifier(
+        n_estimators=N_ESTIMATORS, 
+        random_state=seed, 
+        epsilon=epsilon,
+        bounds=(lower_bounds, upper_bounds)
     )
-
-    rf_dp = RandomForestClassifier(
-        n_estimators=N_ESTIMATORS, random_state=seed, n_jobs=-1
-    )
-    rf_dp.fit(X_train_noisy, y_train)
+    rf_dp.fit(X_train_norm, y_train)
     y_pred_t = rf_dp.predict(X_test_norm)
 
     acc_t = accuracy_score(y_test, y_pred_t)
