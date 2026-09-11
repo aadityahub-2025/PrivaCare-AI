@@ -26,6 +26,7 @@ import numpy as np
 import pandas as pd
 from scipy.special import erfc
 from sklearn.linear_model import LogisticRegression
+from diffprivlib.models import LogisticRegression as DPLogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import (
@@ -54,14 +55,14 @@ DOMAIN_BOUNDS = {
     "blood_oxygen":             (70.0, 100.0),
     "blood_pressure_systolic":  (60,    250),
     "blood_pressure_diastolic": (40,    150),
-    "glucose_level":            (50.0,  500.0),
-    "body_temperature":         (35.0,  42.0),
+    "glucose_level":            (30.0,  300.0),   # FIX 2
+    "body_temperature":         (94.0,  107.0),   # FIX 1: Fahrenheit
     "respiratory_rate":         (8,     40),
-    "activity_level":           (0.0,   10.0),
-    "sleep_quality":            (0.0,   10.0),
-    "stress_level":             (0.0,   10.0),
+    "activity_level":           (0.0,   1.0),     # FIX 3
+    "sleep_quality":            (0.0,   1.0),     # FIX 4
+    "stress_level":             (0.0,   1.0),     # FIX 5
     "hrv_sdnn":                 (5.0,  200.0),
-    "steps_count":              (0,    50000),
+    "steps_count":              (0,    15000),    # FIX 6
     "calories_burned":          (0,     5000),
     "age":                      (0,     120),
     "gender":                   (0,     1),
@@ -117,16 +118,11 @@ def normalize_with_domain_bounds(X, feature_names, fallback_bounds=None):
 
 
 # ===========================================================================
-#  GAUSSIAN NOISE INJECTION
+#  GAUSSIAN NOISE INJECTION (DIFFPRIVLIB)
 # ===========================================================================
-def add_gaussian_dp_noise(X_norm, feature_names, sigma, rng):
-    X_noisy = X_norm.copy()
-    for i, col in enumerate(feature_names):
-        if col in BINARY_FEATURES:
-            continue
-        noise = rng.normal(loc=0.0, scale=sigma, size=X_norm.shape[0])
-        X_noisy[:, i] = np.clip(X_noisy[:, i] + noise, 0.0, 1.0)
-    return X_noisy
+# The manual add_gaussian_dp_noise function has been removed.
+# We now use diffprivlib's DPLogisticRegression (Objective Perturbation),
+# which provides pure epsilon-DP and much higher accuracy than input perturbation.
 
 
 # ===========================================================================
@@ -210,12 +206,18 @@ try:
 except ValueError:
     epsilon = 0.5
 
-sigma = analytic_gaussian_sigma(epsilon, DELTA, sensitivity=1.0)
+# Calculate correct L2 sensitivity for Input Perturbation
+continuous_features = [c for c in feature_cols if c not in BINARY_FEATURES]
+k = len(continuous_features)
+l2_sensitivity = math.sqrt(k)
+
+sigma = analytic_gaussian_sigma(epsilon, DELTA, sensitivity=l2_sensitivity)
 total_epsilon_basic    = N_TRIALS * epsilon
 total_epsilon_advanced = math.sqrt(N_TRIALS) * epsilon
 
 print(f"\n  --> Epsilon (e, per run)   = {epsilon}")
 print(f"      Delta   (d)             = {DELTA}")
+print(f"      L2 Sensitivity (sqrt(k))= {l2_sensitivity:.4f}")
 print(f"      Sigma   (s, Analytic GM)= {sigma:.4f}  [Gaussian noise std]")
 print(f"      Trials                  = {N_TRIALS} runs")
 print(f"\n  [!] COMPOSITION WARNING:")
@@ -241,8 +243,8 @@ print(f"    Baseline Recall   : {rec_baseline:.4f}\n")
 # ===========================================================================
 #  6. DP LR — GAUSSIAN MECHANISM, MULTIPLE TRIALS
 # ===========================================================================
-print(f"[2] Training DP LR with Gaussian Mechanism ({N_TRIALS} trials | e={epsilon})...")
-print(f"    Gaussian sigma={sigma:.4f} | sensitivity=1.0 | (e,d)-DP\n")
+print(f"[2] Training DP LR with Diffprivlib Objective Perturbation ({N_TRIALS} trials | e={epsilon})...")
+print(f"    Using DPLogisticRegression | data_norm={l2_sensitivity:.4f} | pure epsilon-DP\n")
 
 trial_accs = []
 trial_f1s  = []
@@ -253,10 +255,9 @@ for trial in range(N_TRIALS):
     seed = BASE_SEED + trial
     rng  = np.random.RandomState(seed)
 
-    X_train_noisy = add_gaussian_dp_noise(X_train_norm, feature_cols, sigma, rng)
-
-    lr_dp = LogisticRegression(max_iter=1000, random_state=seed)
-    lr_dp.fit(X_train_noisy, y_train)
+    # Use diffprivlib LR directly on clean normalized data
+    lr_dp = DPLogisticRegression(epsilon=epsilon, data_norm=l2_sensitivity, random_state=seed)
+    lr_dp.fit(X_train_norm, y_train)
     y_pred_t = lr_dp.predict(X_test_norm)
 
     acc_t = accuracy_score(y_test, y_pred_t)
