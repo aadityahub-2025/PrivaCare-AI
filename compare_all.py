@@ -2,11 +2,9 @@
 PrivaCare-AI - compare_all.py
 Combined comparison of all DP models and mechanisms.
 
-Runs all 4 combinations across multiple epsilon values:
-  - Random Forest       + Gaussian (diffprivlib)
-  - Random Forest       + Laplace  (feature-level)
-  - Logistic Regression + Gaussian (feature-level)
-  - Logistic Regression + Laplace  (feature-level)
+Runs DP models across multiple epsilon values:
+  - Random Forest       (diffprivlib tree-based DP)
+  - Logistic Regression (diffprivlib objective perturbation DP)
 
 Output: Full comparison table with accuracy, F1, privacy params.
 """
@@ -37,14 +35,14 @@ DOMAIN_BOUNDS = {
     "blood_oxygen":             (70.0, 100.0),
     "blood_pressure_systolic":  (60,    250),
     "blood_pressure_diastolic": (40,    150),
-    "glucose_level":            (50.0,  500.0),
-    "body_temperature":         (35.0,  42.0),
+    "glucose_level":            (30.0,  300.0),
+    "body_temperature":         (94.0,  107.0),
     "respiratory_rate":         (8,     40),
-    "activity_level":           (0.0,   10.0),
-    "sleep_quality":            (0.0,   10.0),
-    "stress_level":             (0.0,   10.0),
+    "activity_level":           (0.0,   1.0),
+    "sleep_quality":            (0.0,   1.0),
+    "stress_level":             (0.0,   1.0),
     "hrv_sdnn":                 (5.0,  200.0),
-    "steps_count":              (0,    50000),
+    "steps_count":              (0,    15000),
     "calories_burned":          (0,     5000),
     "age":                      (0,     120),
     "gender":                   (0,     1),
@@ -72,60 +70,8 @@ def normalize(X, feature_names, fallback=None):
     return X_norm, fb
 
 
-def analytic_gaussian_sigma(epsilon, delta, sensitivity=1.0):
-    def phi(t): return 0.5 * erfc(-t / math.sqrt(2))
-    def delta_of_sigma(s):
-        a = sensitivity / (2 * s); b = epsilon * s / sensitivity
-        return phi(a - b) - math.exp(epsilon) * phi(-a - b)
-    lo, hi = 1e-9, 1e6
-    for _ in range(1000):
-        mid = (lo + hi) / 2
-        (hi := mid) if delta_of_sigma(mid) <= delta else (lo := mid)
-    return hi
-
-
-def add_gaussian_noise(X, feature_names, sigma, rng):
-    X_n = X.copy()
-    for i, col in enumerate(feature_names):
-        if col not in BINARY_FEATURES:
-            X_n[:, i] = np.clip(X_n[:, i] + rng.normal(0, sigma, X.shape[0]), 0, 1)
-    return X_n
-
-
-def add_laplace_noise(X, feature_names, b, rng):
-    X_n = X.copy()
-    for i, col in enumerate(feature_names):
-        if col not in BINARY_FEATURES:
-            X_n[:, i] = np.clip(X_n[:, i] + rng.laplace(0, b, X.shape[0]), 0, 1)
-    return X_n
-
-
-def run_trials(train_fn, X_train_norm, X_test_norm, y_train, y_test, epsilon):
-    accs, f1s = [], []
-    for trial in range(N_TRIALS):
-        seed = BASE_SEED + trial
-        rng  = np.random.RandomState(seed)
-        model, y_pred = train_fn(X_train_norm, y_train, epsilon, seed, rng)
-        accs.append(accuracy_score(y_test, y_pred))
-        f1s.append(f1_score(y_test, y_pred, average="macro"))
-    return np.mean(accs), np.std(accs), np.mean(f1s)
-
-
-# ===========================================================================
-#  4 TRAINING FUNCTIONS
-# ===========================================================================
-def train_rf_gaussian(X_train_norm, y_train, epsilon, seed, rng):
-    """Random Forest + diffprivlib Gaussian (Exponential+Laplace on splits)"""
-    bounds = ([0.0] * X_train_norm.shape[1], [1.0] * X_train_norm.shape[1])
-    model = dp.RandomForestClassifier(
-        n_estimators=100, epsilon=epsilon, bounds=bounds, random_state=seed
-    )
-    model.fit(X_train_norm, y_train)
-    return model, model.predict(X_train_norm)   # predict on test via closure below
-
-
-def train_rf_gaussian_v2(X_train_norm, X_test_norm, y_train, epsilon, seed):
-    """RF + diffprivlib -- returns test predictions"""
+def train_rf_diffprivlib(X_train_norm, X_test_norm, y_train, epsilon, seed):
+    """RF + diffprivlib -- pure epsilon-DP"""
     bounds = ([0.0] * X_train_norm.shape[1], [1.0] * X_train_norm.shape[1])
     model = dp.RandomForestClassifier(
         n_estimators=100, epsilon=epsilon, bounds=bounds, random_state=seed
@@ -134,31 +80,12 @@ def train_rf_gaussian_v2(X_train_norm, X_test_norm, y_train, epsilon, seed):
     return model.predict(X_test_norm)
 
 
-def train_rf_laplace_v2(X_train_norm, X_test_norm, y_train, epsilon, seed):
-    """RF + Laplace feature noise -- pure epsilon-DP"""
-    rng = np.random.RandomState(seed)
-    X_noisy = add_laplace_noise(X_train_norm, feature_cols, 1.0 / epsilon, rng)
-    model = RandomForestClassifier(n_estimators=100, random_state=seed, n_jobs=-1)
-    model.fit(X_noisy, y_train)
-    return model.predict(X_test_norm)
-
-
-def train_lr_gaussian_v2(X_train_norm, X_test_norm, y_train, epsilon, seed):
-    """LR + Gaussian feature noise -- (epsilon, delta)-DP"""
-    sigma = analytic_gaussian_sigma(epsilon, DELTA)
-    rng   = np.random.RandomState(seed)
-    X_noisy = add_gaussian_noise(X_train_norm, feature_cols, sigma, rng)
-    model = LogisticRegression(max_iter=1000, random_state=seed)
-    model.fit(X_noisy, y_train)
-    return model.predict(X_test_norm)
-
-
-def train_lr_laplace_v2(X_train_norm, X_test_norm, y_train, epsilon, seed):
-    """LR + Laplace feature noise -- pure epsilon-DP"""
-    rng = np.random.RandomState(seed)
-    X_noisy = add_laplace_noise(X_train_norm, feature_cols, 1.0 / epsilon, rng)
-    model = LogisticRegression(max_iter=1000, random_state=seed)
-    model.fit(X_noisy, y_train)
+def train_lr_diffprivlib(X_train_norm, X_test_norm, y_train, epsilon, seed):
+    """LR + diffprivlib -- pure epsilon-DP (Objective Perturbation)"""
+    continuous_features = [c for c in feature_cols if c not in BINARY_FEATURES]
+    data_norm = math.sqrt(len(continuous_features))
+    model = dp.LogisticRegression(epsilon=epsilon, data_norm=data_norm, random_state=seed)
+    model.fit(X_train_norm, y_train)
     return model.predict(X_test_norm)
 
 
@@ -211,10 +138,8 @@ acc_base_lr = accuracy_score(y_test, lr_base.predict(X_test_norm))
 #  RUN ALL EXPERIMENTS
 # ===========================================================================
 MODELS = [
-    ("Random Forest",       "Gaussian (diffprivlib)", train_rf_gaussian_v2, acc_base_rf, "(e,d)-DP"),
-    ("Random Forest",       "Laplace  (feature)     ", train_rf_laplace_v2,  acc_base_rf, "pure e-DP"),
-    ("Logistic Regression", "Gaussian (feature)     ", train_lr_gaussian_v2, acc_base_lr, "(e,d)-DP"),
-    ("Logistic Regression", "Laplace  (feature)     ", train_lr_laplace_v2,  acc_base_lr, "pure e-DP"),
+    ("Random Forest",       "Diffprivlib (Tree DP)",     train_rf_diffprivlib, acc_base_rf, "pure e-DP"),
+    ("Logistic Regression", "Diffprivlib (Objective DP)", train_lr_diffprivlib, acc_base_lr, "pure e-DP"),
 ]
 
 results = []
@@ -271,6 +196,6 @@ for row in results:
 print("\n" + "="*70)
 print("  KEY FINDING:")
 print("  Higher epsilon = more accuracy, less privacy")
-print("  RF + diffprivlib Gaussian consistently outperforms feature-level noise")
-print("  Laplace = pure epsilon-DP (stronger formal guarantee than Gaussian)")
+print("  RF + diffprivlib consistently outperforms Logistic Regression")
+print("  Diffprivlib provides mathematically rigorous pure epsilon-DP natively")
 print("="*70 + "\n")

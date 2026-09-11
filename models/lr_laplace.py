@@ -24,6 +24,7 @@ import math
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
+from diffprivlib.models import LogisticRegression as DPLogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import (
@@ -50,14 +51,14 @@ DOMAIN_BOUNDS = {
     "blood_oxygen":             (70.0, 100.0),
     "blood_pressure_systolic":  (60,    250),
     "blood_pressure_diastolic": (40,    150),
-    "glucose_level":            (50.0,  500.0),
-    "body_temperature":         (35.0,  42.0),
+    "glucose_level":            (30.0,  300.0),
+    "body_temperature":         (94.0,  107.0),
     "respiratory_rate":         (8,     40),
-    "activity_level":           (0.0,   10.0),
-    "sleep_quality":            (0.0,   10.0),
-    "stress_level":             (0.0,   10.0),
+    "activity_level":           (0.0,   1.0),
+    "sleep_quality":            (0.0,   1.0),
+    "stress_level":             (0.0,   1.0),
     "hrv_sdnn":                 (5.0,  200.0),
-    "steps_count":              (0,    50000),
+    "steps_count":              (0,    15000),
     "calories_burned":          (0,     5000),
     "age":                      (0,     120),
     "gender":                   (0,     1),
@@ -93,17 +94,11 @@ def normalize_with_domain_bounds(X, feature_names, fallback_bounds=None):
 
 
 # ===========================================================================
-#  LAPLACE NOISE INJECTION
+#  LAPLACE NOISE INJECTION (DIFFPRIVLIB)
 # ===========================================================================
-def add_laplace_dp_noise(X_norm, feature_names, epsilon, rng):
-    b = 1.0 / epsilon
-    X_noisy = X_norm.copy()
-    for i, col in enumerate(feature_names):
-        if col in BINARY_FEATURES:
-            continue
-        noise = rng.laplace(loc=0.0, scale=b, size=X_norm.shape[0])
-        X_noisy[:, i] = np.clip(X_noisy[:, i] + noise, 0.0, 1.0)
-    return X_noisy, b
+# The manual add_laplace_dp_noise function has been removed.
+# We now use diffprivlib's DPLogisticRegression (Objective Perturbation),
+# which guarantees pure epsilon-DP natively without destroying input data.
 
 
 # ===========================================================================
@@ -187,19 +182,21 @@ try:
 except ValueError:
     epsilon = 0.5
 
-b = 1.0 / epsilon
-total_epsilon_basic    = N_TRIALS * epsilon
-total_epsilon_advanced = math.sqrt(N_TRIALS) * epsilon
+continuous_features = [c for c in feature_cols if c not in BINARY_FEATURES]
+k = len(continuous_features)
+l2_sensitivity = math.sqrt(k)
+
+total_epsilon_basic = N_TRIALS * epsilon
 
 print(f"\n  --> Epsilon (e, per run)    = {epsilon}")
-print(f"      Laplace scale (b=1/e)   = {b:.4f}  << ACTUALLY USED for noise")
-print(f"      Mechanism               : Laplace (pure epsilon-DP)")
-print(f"      NO delta needed         : Laplace gives exact DP guarantee")
+print(f"      data_norm (L2)          = {l2_sensitivity:.4f}  << ACTUALLY USED for DP LR")
+print(f"      Mechanism               : Objective Perturbation (pure epsilon-DP)")
+print(f"      NO delta needed         : Exact DP guarantee")
 print(f"      Trials                  = {N_TRIALS} runs")
 print(f"\n  [!] COMPOSITION WARNING:")
 print(f"      {N_TRIALS} trials on same data -> TOTAL consumed:")
 print(f"        Basic composition    : e_total = {total_epsilon_basic:.4f}  (= {N_TRIALS} x {epsilon})")
-print(f"        Advanced composition : e_total ~ {total_epsilon_advanced:.4f}  (= sqrt({N_TRIALS}) x {epsilon})")
+print(f"        (Advanced composition not applicable for pure DP without adding delta)")
 print(f"  " + "-"*58 + "\n")
 
 # ===========================================================================
@@ -219,8 +216,8 @@ print(f"    Baseline Recall   : {rec_baseline:.4f}\n")
 # ===========================================================================
 #  6. DP LR — LAPLACE MECHANISM, MULTIPLE TRIALS
 # ===========================================================================
-print(f"[2] Training DP LR with Laplace Mechanism ({N_TRIALS} trials | e={epsilon})...")
-print(f"    Laplace scale b={b:.4f} | sensitivity=1.0 | pure epsilon-DP\n")
+print(f"[2] Training DP LR with Diffprivlib Objective Perturbation ({N_TRIALS} trials | e={epsilon})...")
+print(f"    Using DPLogisticRegression | data_norm={l2_sensitivity:.4f} | pure epsilon-DP\n")
 
 trial_accs = []
 trial_f1s  = []
@@ -231,12 +228,8 @@ for trial in range(N_TRIALS):
     seed = BASE_SEED + trial
     rng  = np.random.RandomState(seed)
 
-    X_train_noisy, b_used = add_laplace_dp_noise(
-        X_train_norm, feature_cols, epsilon, rng
-    )
-
-    lr_dp = LogisticRegression(max_iter=1000, random_state=seed)
-    lr_dp.fit(X_train_noisy, y_train)
+    lr_dp = DPLogisticRegression(epsilon=epsilon, data_norm=l2_sensitivity, random_state=seed)
+    lr_dp.fit(X_train_norm, y_train)
     y_pred_t = lr_dp.predict(X_test_norm)
 
     acc_t = accuracy_score(y_test, y_pred_t)
@@ -273,14 +266,14 @@ print(f"  DP Accuracy ({N_TRIALS} trials, e={epsilon})          : {acc_dp * 100:
 print(f"  DP Macro F1 Score                      : {f1_dp:.4f}")
 print(f"  DP Macro Recall                        : {rec_dp:.4f}")
 print(f"  Accuracy Drop (Privacy Cost)           : {(acc_baseline - acc_dp) * 100:.2f}%")
-print(f"  Laplace Scale (b = 1/epsilon)          : {b:.4f}")
+print(f"  data_norm (L2)                         : {l2_sensitivity:.4f}")
 print(f"  Normalization                          : Domain-bound clipping (data-independent)")
 print(f"  " + "-"*58)
 print(f"  PRIVACY BUDGET ACCOUNTING:")
-print(f"    Mechanism                : Laplace Mechanism (Dwork & Roth, 2014)")
+print(f"    Mechanism                : Objective Perturbation (pure epsilon-DP)")
 print(f"    Per-run guarantee        : pure {epsilon}-DP  (NO delta needed)")
 print(f"    Total consumed (basic)   : {total_epsilon_basic:.4f}-DP  <-- {N_TRIALS} runs x e={epsilon}")
-print(f"    Total consumed (advanced): ~{total_epsilon_advanced:.4f}-DP  <-- sqrt({N_TRIALS}) x e={epsilon}")
+print(f"    (Advanced composition not applicable for pure DP)")
 print(f"  " + "-"*58)
 print(f"\n  PER-CLASS REPORT (last trial):\n")
 print(report)
