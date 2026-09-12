@@ -37,7 +37,7 @@ warnings.filterwarnings("ignore")
 # ===========================================================================
 N_TRIALS     = 3      # DP model runs to average (improves result reliability)
 DELTA        = 1e-5   # Fixed failure probability delta
-N_ESTIMATORS = 100
+N_ESTIMATORS = 20     # Lower trees = more privacy budget per tree
 BASE_SEED    = 42     # Trial i gets seed = BASE_SEED + i
 
 # FIX 12 (Round 2): STRICT mode - missing features halt execution.
@@ -216,8 +216,10 @@ if "gender" in df.columns and df["gender"].dtype == object:
         return GENDER_MAP[v]
     df["gender"] = df["gender"].apply(encode_gender)
 
-# Feature selection (numeric, non-ID columns)
-drop_cols    = ["timestamp", "device_id", "patient_id", "is_synthetic", target_col]
+# Feature selection: Drop IDs, target, and low-importance features to save DP budget
+drop_cols    = ["timestamp", "device_id", "patient_id", "is_synthetic", target_col,
+                "body_temperature", "respiratory_rate", "activity_level", 
+                "calories_burned", "blood_oxygen"]
 feature_cols = [c for c in df.columns
                 if c not in drop_cols
                 and df[c].dtype in [np.float64, np.int64, float, int]]
@@ -337,6 +339,8 @@ for trial in range(N_TRIALS):
     seed = BASE_SEED + trial
     rf_dp = dp.RandomForestClassifier(
         n_estimators=N_ESTIMATORS,
+        max_depth=10,             # Prevent overfitting
+        min_samples_leaf=10,      # Better signal-to-noise ratio in leaves
         epsilon=epsilon,
         bounds=bounds,
         random_state=seed,

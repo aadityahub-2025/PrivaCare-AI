@@ -41,7 +41,7 @@ warnings.filterwarnings("ignore")
 #  CONFIGURATION
 # ===========================================================================
 N_TRIALS     = 3      # DP model runs to average (improves reliability)
-N_ESTIMATORS = 100
+N_ESTIMATORS = 20     # Reduced from 100 to save epsilon budget per tree
 BASE_SEED    = 42     # Trial i gets seed = BASE_SEED + i
 STRICT_DOMAIN_BOUNDS = True
 
@@ -253,7 +253,9 @@ for trial in range(N_TRIALS):
 
     # Instead of manual feature noise, pass bounds to diffprivlib RF
     rf_dp = DPRandomForestClassifier(
-        n_estimators=N_ESTIMATORS, 
+        n_estimators=N_ESTIMATORS,
+        max_depth=10,             # Prevent overfitting and sparse leaf noise
+        min_samples_leaf=10,      # Improve signal-to-noise ratio in leaves
         random_state=seed, 
         epsilon=epsilon,
         bounds=(lower_bounds, upper_bounds)
