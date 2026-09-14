@@ -218,8 +218,9 @@ def load_and_train(epsilon=0.5):
     acc_base = accuracy_score(y_test, rf_base.predict(X_test_norm))
 
     # DP model (diffprivlib handles DP composition internally)
+    classes = np.unique(y_train)
     rf_dp = dp.RandomForestClassifier(
-        n_estimators=100, epsilon=epsilon, bounds=bounds, random_state=42
+        n_estimators=100, epsilon=epsilon, bounds=bounds, classes=classes, random_state=42
     )
     rf_dp.fit(X_train_norm, y_train)
     y_pred       = rf_dp.predict(X_test_norm)

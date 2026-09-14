@@ -1,6 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import warnings
+warnings.filterwarnings("once")
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
@@ -53,9 +55,10 @@ epsilon = 0.5
 
 # Model A: RF Laplace (Tree-DP)
 bounds = ([0.0] * 4, [1.0] * 4)
+classes = np.unique(y_train)
 rf_model = dp.RandomForestClassifier(
-    n_estimators=20, max_depth=10, min_samples_leaf=10, 
-    epsilon=epsilon, bounds=bounds, random_state=42
+    n_estimators=20, max_depth=10, 
+    epsilon=epsilon, bounds=bounds, classes=classes, random_state=42
 )
 rf_model.fit(X_train_norm, y_train)
 rf_preds = rf_model.predict(X_test_norm)

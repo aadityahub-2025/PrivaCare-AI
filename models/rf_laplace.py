@@ -24,7 +24,9 @@ import math
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
-from diffprivlib.models import RandomForestClassifier as DPRandomForestClassifier
+import diffprivlib.models as dp
+import warnings
+warnings.filterwarnings("once")
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import (
@@ -252,14 +254,17 @@ for trial in range(N_TRIALS):
     seed = BASE_SEED + trial
     rng  = np.random.RandomState(seed)
 
+    # Add classes explicitly to prevent privacy leak in diffprivlib
+    classes = np.unique(y_train)
+
     # Instead of manual feature noise, pass bounds to diffprivlib RF
-    rf_dp = DPRandomForestClassifier(
+    rf_dp = dp.RandomForestClassifier(
         n_estimators=N_ESTIMATORS,
         max_depth=10,             # Prevent overfitting and sparse leaf noise
-        min_samples_leaf=10,      # Improve signal-to-noise ratio in leaves
         random_state=seed, 
         epsilon=epsilon,
-        bounds=(lower_bounds, upper_bounds)
+        bounds=(lower_bounds, upper_bounds),
+        classes=classes
     )
     rf_dp.fit(X_train_norm, y_train)
     y_pred_t = rf_dp.predict(X_test_norm)

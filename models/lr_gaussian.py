@@ -37,7 +37,7 @@ from sklearn.metrics import (
 import joblib
 import os
 import warnings
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("once")
 
 # ===========================================================================
 #  CONFIGURATION

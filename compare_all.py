@@ -20,7 +20,7 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import accuracy_score, f1_score
 import diffprivlib.models as dp
 import warnings
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("once")
 
 # ===========================================================================
 #  SHARED CONFIG
@@ -69,7 +69,20 @@ def normalize(X, feature_names, fallback=None):
     return X_norm, fb
 
 def analytic_gaussian_sigma(epsilon, delta, sensitivity):
-    return math.sqrt(2 * math.log(1.25 / delta)) * sensitivity / epsilon
+    def phi(t):
+        return 0.5 * erfc(-t / math.sqrt(2))
+    def delta_of_sigma(s):
+        a = sensitivity / (2 * s)
+        b = epsilon * s / sensitivity
+        return phi(a - b) - math.exp(epsilon) * phi(-a - b)
+    lo, hi = 1e-9, 1e6
+    for _ in range(1000):
+        mid = (lo + hi) / 2
+        if delta_of_sigma(mid) <= delta:
+            hi = mid
+        else:
+            lo = mid
+    return hi
 
 # ===========================================================================
 #  TRAINING WRAPPERS
@@ -77,9 +90,10 @@ def analytic_gaussian_sigma(epsilon, delta, sensitivity):
 def train_rf_laplace(X_train_norm, X_test_norm, y_train, epsilon, seed):
     """RF + diffprivlib (Tree DP)"""
     bounds = ([0.0] * X_train_norm.shape[1], [1.0] * X_train_norm.shape[1])
+    classes = np.unique(y_train)
     model = dp.RandomForestClassifier(
-        n_estimators=20, max_depth=10, min_samples_leaf=10, 
-        epsilon=epsilon, bounds=bounds, random_state=seed
+        n_estimators=20, max_depth=10, 
+        epsilon=epsilon, bounds=bounds, classes=classes, random_state=seed
     )
     model.fit(X_train_norm, y_train)
     return model.predict(X_test_norm)
@@ -173,9 +187,9 @@ acc_base_lr = accuracy_score(y_test, lr_base.predict(X_test_norm))
 #  RUN ALL EXPERIMENTS
 # ===========================================================================
 MODELS = [
-    ("RF Laplace (Tree DP)",     "Objective Perturbation", train_rf_laplace, acc_base_rf, "pure e-DP"),
-    ("LR Laplace (Objective)",   "Objective Perturbation", train_lr_laplace, acc_base_lr, "pure e-DP"),
-    ("LR True Gaussian",         "Input Perturbation",     train_lr_gaussian, acc_base_lr, "(e, d)-DP"),
+    ("RF Laplace (Tree DP)",     "Tree-based DP",          train_rf_laplace,       acc_base_rf, "pure e-DP"),
+    ("LR Laplace (Objective)",   "Objective Perturbation", train_lr_laplace,       acc_base_lr, "pure e-DP"),
+    ("LR True Gaussian",         "Input Perturbation",     train_lr_gaussian,      acc_base_lr, "(e, d)-DP"),
     ("RF True Gaussian (Fail)",  "Input Perturbation",     train_rf_true_gaussian, acc_base_rf, "(e, d)-DP")
 ]
 

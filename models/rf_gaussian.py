@@ -32,7 +32,7 @@ import diffprivlib.models as dp
 import joblib
 import os
 import warnings
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("once")
 
 # ===========================================================================
 #  CONFIGURATION
@@ -341,13 +341,17 @@ rf_dp = None
 for trial in range(N_TRIALS):
     seed = BASE_SEED + trial
     
-    # 1. Train diffprivlib Random Forest (Tree-Based DP)
+    # Add classes explicitly to prevent privacy leak in diffprivlib
+    classes = np.unique(y_train)
+
+    # 2. Train Diffprivlib RandomForest
+    # We pass the domain bounds to ensure privacy is maintained.
     rf_dp = dp.RandomForestClassifier(
         n_estimators=N_ESTIMATORS,
-        max_depth=10,             # Prevent overfitting
-        min_samples_leaf=10,
+        max_depth=10,
         epsilon=epsilon,
         bounds=bounds,
+        classes=classes,
         random_state=seed,
     )
     rf_dp.fit(X_train_norm, y_train)
