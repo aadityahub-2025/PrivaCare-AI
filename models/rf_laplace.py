@@ -6,10 +6,9 @@ Guarantee: Pure epsilon-DP  (NO delta needed -- stronger formal claim)
 
 DP Approach:
   - Features normalized to [0,1] via data-independent DOMAIN_BOUNDS
-    L-inf sensitivity = 1.0 per feature (fully data-independent)
-  - Laplace noise Lap(0, b) added to TRAINING features only
-    b = sensitivity / epsilon = 1.0 / epsilon
-  - sklearn RandomForestClassifier trained on noisy features
+  - sklearn RandomForest replaced with diffprivlib's DPRandomForestClassifier
+  - Mechanism: Tree-based DP (Exponential for splits, Laplace for leaves)
+  - Guarantee: pure epsilon-DP
   - Test features stay CLEAN (standard DP-ML practice)
   - Guarantee: pure epsilon-DP
 
@@ -34,6 +33,8 @@ from sklearn.metrics import (
     recall_score,
     classification_report,
 )
+import joblib
+import os
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -312,4 +313,12 @@ print(f"    (Note: Advanced composition converts pure DP to approximate DP, so n
 print(f"  " + "-"*58)
 print(f"\n  PER-CLASS REPORT (last trial):\n")
 print(report)
+
+# ===========================================================================
+#  8. SAVE MODEL
+# ===========================================================================
+os.makedirs("saved_models", exist_ok=True)
+model_path = "saved_models/rf_laplace.pkl"
+joblib.dump(rf_dp, model_path)
+print(f"  [+] Model successfully saved to: {model_path}")
 print(f"{'='*60}\n")
