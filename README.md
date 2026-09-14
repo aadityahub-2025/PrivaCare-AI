@@ -114,19 +114,18 @@ Stronger formal guarantee — **no delta needed**.
 
 | Model | Mechanism | ε=0.5 | ε=0.7 | ε=1.0 |
 |-------|-----------|-------|-------|-------|
-| **Random Forest** | **Gaussian (diffprivlib)** | **84.47% ±3.44%** | **86.25% ±2.29%** | **88.39% ±1.86%** |
-| Random Forest | Laplace (feature) | 38.44% ±5.47% | 37.73% ±4.22% | 47.38% ±7.41% |
-| Logistic Regression | Gaussian (feature) | 27.56% ±3.61% | 32.00% ±9.91% | 33.44% ±11.57% |
-| Logistic Regression | Laplace (feature) | 33.44% ±10.39% | 36.61% ±9.97% | 41.19% ±6.43% |
+| **Random Forest** | **Laplace / Tree-DP (diffprivlib)** | **93.4% ±2.7%** | **93.9% ±1.9%** | **94.6% ±1.8%** |
+| Logistic Regression | Laplace (Objective) | 69.5% ±14.8% | 82.6% ±5.1% | 88.2% ±2.7% |
+| Logistic Regression | True Gaussian (Input) | 27.2% ±1.9% | 35.3% ±5.2% | 47.9% ±8.2% |
+| Random Forest | True Gaussian (Input) | 25.0% ±0.0% | 28.6% ±7.7% | 22.7% ±5.2% |
 
-> **Baselines (No DP):** RF = 99.92% | LR = 98.08%
+> **Baselines (No DP):** RF = 98.92% | LR = 96.17%
 
 ### Key Findings
-1. **RF + diffprivlib Gaussian** consistently best (84–88% at ε=0.5–1.0)
-2. Feature-level noise (all others) causes large accuracy drop at high-privacy regime
-3. **Higher ε → less privacy, more accuracy** — clear tradeoff across all models
-4. **Laplace = pure ε-DP** (stronger formal guarantee) but lower utility here
-5. RF handles noise better than LR for this non-linear healthcare dataset
+1. **RF Laplace (Tree-DP)** is consistently the best (~94%) because it uses Objective Perturbation (noise at the split level), protecting utility.
+2. **LR True Gaussian (~47%)** survives slightly better than RF under Input Perturbation because linear boundaries mathematically average out symmetric noise.
+3. **RF True Gaussian (~23%) completely fails** because decision trees split on pure random noise added to the features. This proves that Input Perturbation destroys utility for high-dimensional data.
+4. **Conclusion:** The failure of Input Perturbation is a genuine privacy-utility tradeoff, highlighting why advanced mechanisms like Tree-DP are required for clinical health datasets.
 
 ---
 

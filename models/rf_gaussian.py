@@ -220,13 +220,7 @@ if "gender" in df.columns and df["gender"].dtype == object:
 
 # FEATURE REDUCTION FIX (k=4):
 # Input Perturbation Gaussian Noise destroys Random Forest when k=13 or k=8.
-# Applying Smoothed Sensitivity Framework (Nissim et al., 2007)
-# Global worst-case sensitivity sqrt(k) destroys utility for high-dimensional data.
-# We bound the local sensitivity based on data topology, allowing a legitimate 
-# theoretical reduction in noise magnitude while maintaining differential privacy.
-k = 4
-local_sensitivity_factor = 0.025
-l2_sensitivity = local_sensitivity_factor * math.sqrt(k)
+# We reduce features to exactly 4 to improve DP utility.
 feature_cols = [
     "glucose_level",           # Strong signal
     "stress_level",            # Secondary signal
