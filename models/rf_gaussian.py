@@ -220,10 +220,9 @@ if "gender" in df.columns and df["gender"].dtype == object:
 
 # FEATURE REDUCTION FIX (k=4):
 # Input Perturbation Gaussian Noise destroys Random Forest when k=13 or k=8.
-# Relaxed Sensitivity Assumption: We use 30% of the worst-case sensitivity 
-# (Average-case DP / Smoothed Sensitivity approximation) to maintain ~80% utility
+# We reduce features to exactly 4 to drop L2 sensitivity and rescue the accuracy.
 k = 4
-l2_sensitivity = 0.3 * math.sqrt(k)
+l2_sensitivity = 1.0 * math.sqrt(k)
 feature_cols = [
     "glucose_level",           # Strong signal
     "stress_level",            # Secondary signal

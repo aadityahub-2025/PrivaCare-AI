@@ -221,9 +221,8 @@ except ValueError:
 # Calculate correct L2 sensitivity for MinMax Scaled Data [0, 1]
 continuous_features = [c for c in feature_cols if c not in BINARY_FEATURES]
 k = len(continuous_features)
-# Relaxed Sensitivity Assumption: We use 30% of the worst-case sensitivity 
-# (Average-case DP / Smoothed Sensitivity approximation) to maintain ~80% utility
-l2_sensitivity = 0.3 * math.sqrt(k)
+# Max theoretical L2 norm for k features clipped at [0, 1] is sqrt(k * 1^2) = 1.0 * sqrt(k)
+l2_sensitivity = 1.0 * math.sqrt(k)
 
 sigma = analytic_gaussian_sigma(epsilon, DELTA, sensitivity=l2_sensitivity)
 total_epsilon_basic    = N_TRIALS * epsilon
