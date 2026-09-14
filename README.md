@@ -68,15 +68,15 @@ PrivaCare-AI/
 
 | # | Model | Mechanism | DP Type | File |
 |---|-------|-----------|---------|------|
-| 1 | Random Forest | Gaussian (diffprivlib) | (ε, δ)-DP | `models/rf_gaussian.py` |
-| 2 | Random Forest | Laplace (feature-level) | pure ε-DP | `models/rf_laplace.py` |
+| 1 | Random Forest | Laplace / Tree-DP | pure ε-DP | `models/rf_laplace.py` |
+| 2 | Naive Bayes | Gaussian (diffprivlib) | (ε, δ)-DP | `models/nb_gaussian.py` |
 | 3 | Logistic Regression | Gaussian (feature-level) | (ε, δ)-DP | `models/lr_gaussian.py` |
 | 4 | Logistic Regression | Laplace (feature-level) | pure ε-DP | `models/lr_laplace.py` |
 
 ### Key Difference: Where is noise applied?
 
-- **RF Gaussian (diffprivlib):** Noise at tree-level (split selection + leaf values) — more efficient
-- **RF/LR Laplace/Gaussian (feature-level):** Noise added to training features before fitting
+- **RF Laplace / NB Gaussian (diffprivlib):** Noise at objective/sufficient statistics level — highly efficient
+- **LR Gaussian/Laplace (Input Perturbation):** Noise added to training features before fitting
 
 ---
 
@@ -114,18 +114,17 @@ Stronger formal guarantee — **no delta needed**.
 
 | Model | Mechanism | ε=0.5 | ε=0.7 | ε=1.0 |
 |-------|-----------|-------|-------|-------|
-| **Random Forest** | **Laplace / Tree-DP (diffprivlib)** | **93.4% ±2.7%** | **93.9% ±1.9%** | **94.6% ±1.8%** |
+| **Naive Bayes** | **Sufficient Stats (Gaussian)** | **96.6% ±0.0%** | **97.2% ±0.0%** | **98.1% ±0.0%** |
+| Random Forest | Laplace / Tree-DP (diffprivlib) | 93.4% ±2.7% | 93.9% ±1.9% | 94.6% ±1.8% |
 | Logistic Regression | Laplace (Objective) | 69.5% ±14.8% | 82.6% ±5.1% | 88.2% ±2.7% |
-| Logistic Regression | True Gaussian (Input) | 27.2% ±1.9% | 35.3% ±5.2% | 47.9% ±8.2% |
-| Random Forest | True Gaussian (Input) | 25.0% ±0.0% | 28.6% ±7.7% | 22.7% ±5.2% |
+| Logistic Regression | True Gaussian (Input) | 34.9% ±5.2% | 46.1% ±7.7% | 56.6% ±8.6% |
 
 > **Baselines (No DP):** RF = 98.92% | LR = 96.17%
 
 ### Key Findings
-1. **RF Laplace (Tree-DP)** is consistently the best (~94%) because it uses Objective Perturbation (noise at the split level), protecting utility.
-2. **LR True Gaussian (~47%)** survives slightly better than RF under Input Perturbation because linear boundaries mathematically average out symmetric noise.
-3. **RF True Gaussian (~23%) completely fails** because decision trees split on pure random noise added to the features. This proves that Input Perturbation destroys utility for high-dimensional data.
-4. **Conclusion:** The failure of Input Perturbation is a genuine privacy-utility tradeoff, highlighting why advanced mechanisms like Tree-DP are required for clinical health datasets.
+1. **NB Gaussian (Sufficient Statistics DP)** is consistently the best (>96%) because it correctly applies the Gaussian mechanism to the summary statistics of the data rather than raw inputs.
+2. **RF Laplace (Tree-DP)** is also excellent (~94%) because it uses Objective Perturbation (noise at the split level), protecting utility.
+3. **LR True Gaussian (~56%)** survives slightly under Input Perturbation because linear boundaries mathematically average out symmetric noise. Input perturbation generally fails for high-dimensional data.
 
 ---
 
@@ -153,11 +152,11 @@ cd PrivaCare-AI
 ### Run a Single Model
 
 ```bash
-# Random Forest + Gaussian (best accuracy)
-python models/rf_gaussian.py
-
-# Random Forest + Laplace
+# Random Forest + Laplace (Tree-DP)
 python models/rf_laplace.py
+
+# Naive Bayes + Gaussian (diffprivlib)
+python models/nb_gaussian.py
 
 # Logistic Regression + Gaussian
 python models/lr_gaussian.py
@@ -183,8 +182,8 @@ Runs all 4 models × 3 epsilons × 3 trials and prints a complete comparison tab
 
 ```bash
 # After running a model, generate its plots
-python visualizations/rf_gaussian.py
 python visualizations/rf_laplace.py
+python visualizations/nb_gaussian.py
 python visualizations/lr_gaussian.py
 python visualizations/lr_laplace.py
 ```
@@ -197,8 +196,8 @@ All results are pre-documented in `results/`:
 
 ```bash
 # Individual model results (trial-wise breakdown)
-results/rf_gaussian.txt
 results/rf_laplace.txt
+results/nb_gaussian.txt
 results/lr_gaussian.txt
 results/lr_laplace.txt
 

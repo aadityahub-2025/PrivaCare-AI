@@ -120,18 +120,11 @@ def train_lr_gaussian(X_train_norm, X_test_norm, y_train, epsilon, seed):
     model.fit(X_train_noisy, y_train)
     return model.predict(X_test_norm)
 
-def train_rf_true_gaussian(X_train_norm, X_test_norm, y_train, epsilon, seed):
-    """RF + True Gaussian (Input Perturbation) - The Failing Control Model"""
-    # True worst-case L2 sensitivity for k [0,1]-scaled features
-    l2_sensitivity = math.sqrt(4)
-    sigma = analytic_gaussian_sigma(epsilon, DELTA, l2_sensitivity)
-    
-    rng = np.random.RandomState(seed)
-    X_train_noisy = X_train_norm.copy()
-    X_train_noisy += rng.normal(0, sigma, size=X_train_noisy.shape)
-    
-    model = RandomForestClassifier(n_estimators=20, max_depth=10, min_samples_leaf=10, random_state=seed, n_jobs=-1)
-    model.fit(X_train_noisy, y_train)
+def train_nb_gaussian(X_train_norm, X_test_norm, y_train, epsilon, seed):
+    """Naive Bayes + True Gaussian (Sufficient Statistics Perturbation)"""
+    bounds = ([0.0] * X_train_norm.shape[1], [1.0] * X_train_norm.shape[1])
+    model = dp.GaussianNB(epsilon=epsilon, bounds=bounds)
+    model.fit(X_train_norm, y_train)
     return model.predict(X_test_norm)
 
 
@@ -190,7 +183,7 @@ MODELS = [
     ("RF Laplace (Tree DP)",     "Tree-based DP",          train_rf_laplace,       acc_base_rf, "pure e-DP"),
     ("LR Laplace (Objective)",   "Objective Perturbation", train_lr_laplace,       acc_base_lr, "pure e-DP"),
     ("LR True Gaussian",         "Input Perturbation",     train_lr_gaussian,      acc_base_lr, "(e, d)-DP"),
-    ("RF True Gaussian (Fail)",  "Input Perturbation",     train_rf_true_gaussian, acc_base_rf, "(e, d)-DP")
+    ("NB True Gaussian",         "Sufficient Stats DP",    train_nb_gaussian,      acc_base_rf, "(e, d)-DP")
 ]
 
 results = []

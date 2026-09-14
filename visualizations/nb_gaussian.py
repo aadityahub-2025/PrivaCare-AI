@@ -32,7 +32,7 @@ from matplotlib.colors import LinearSegmentedColormap
 import warnings
 import os
 
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.naive_bayes import GaussianNB
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, label_binarize
 from sklearn.metrics import (accuracy_score, confusion_matrix,
@@ -48,6 +48,14 @@ np.random.seed(42)
 DATA_PATH = "data/dataset.csv"
 PLOTS_DIR = "results/plots"
 os.makedirs(PLOTS_DIR, exist_ok=True)
+
+# ──────────────────────────────────────────────
+#  MODEL METADATA
+# ──────────────────────────────────────────────
+MODEL_META = {
+    "model_name": "nb_gaussian",
+    "display_name": "Naive Bayes (True Gaussian Mechanism)",
+}
 
 # ──────────────────────────────────────────────
 #  DARK THEME
@@ -213,18 +221,18 @@ def load_and_train(epsilon=0.5):
     bounds = ([0.0] * X_train_norm.shape[1], [1.0] * X_train_norm.shape[1])
 
     # Baseline model
-    rf_base = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
-    rf_base.fit(X_train_norm, y_train)
-    acc_base = accuracy_score(y_test, rf_base.predict(X_test_norm))
+    nb_base = GaussianNB()
+    nb_base.fit(X_train_norm, y_train)
+    acc_base = accuracy_score(y_test, nb_base.predict(X_test_norm))
 
-    # DP model (diffprivlib handles DP composition internally)
+    # DP model
     classes = np.unique(y_train)
-    rf_dp = dp.RandomForestClassifier(
-        n_estimators=100, epsilon=epsilon, bounds=bounds, classes=classes, random_state=42
+    nb_dp = dp.GaussianNB(
+        epsilon=epsilon, bounds=bounds
     )
-    rf_dp.fit(X_train_norm, y_train)
-    y_pred       = rf_dp.predict(X_test_norm)
-    y_pred_proba = rf_dp.predict_proba(X_test_norm)
+    nb_dp.fit(X_train_norm, y_train)
+    y_pred       = nb_dp.predict(X_test_norm)
+    y_pred_proba = nb_dp.predict_proba(X_test_norm)
     acc_dp       = accuracy_score(y_test, y_pred)
 
     # Use custom name map if defined, else fall back to LabelEncoder classes
@@ -234,7 +242,7 @@ def load_and_train(epsilon=0.5):
     ]
 
     return {
-        "df": df, "rf": rf_dp, "rf_base": rf_base, "le": le,
+        "df": df, "rf": nb_dp, "rf_base": nb_base, "le": le,
         "X_train_norm": X_train_norm, "X_test_norm": X_test_norm,
         "y_train": y_train, "y_test": y_test,
         "y_pred": y_pred, "y_pred_proba": y_pred_proba,
