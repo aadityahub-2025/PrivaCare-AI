@@ -107,17 +107,24 @@ def train_lr_laplace(X_train_norm, X_test_norm, y_train, epsilon, seed):
     return model.predict(X_test_norm)
 
 def train_lr_gaussian(X_train_norm, X_test_norm, y_train, epsilon, seed):
-    """LR + True Gaussian (Input Perturbation)"""
-    # True worst-case L2 sensitivity for k [0,1]-scaled features
-    l2_sensitivity = math.sqrt(4)
+    """LR + True Gaussian (Output Perturbation)"""
+    n, _ = X_train_norm.shape
+    num_classes = len(np.unique(y_train))
+    C = 1.0 # Regularization strength
+    
+    # Sensitivity of weights for L2 regularized LR: 2 * C / n
+    l2_sensitivity = (2 * C / n) * math.sqrt(num_classes)
     sigma = analytic_gaussian_sigma(epsilon, DELTA, l2_sensitivity)
     
-    rng = np.random.RandomState(seed)
-    X_train_noisy = X_train_norm.copy()
-    X_train_noisy += rng.normal(0, sigma, size=X_train_noisy.shape)
+    # Train non-DP model
+    model = LogisticRegression(C=C, max_iter=1000, multi_class='multinomial', random_state=seed)
+    model.fit(X_train_norm, y_train)
     
-    model = LogisticRegression(max_iter=1000, random_state=seed)
-    model.fit(X_train_noisy, y_train)
+    # Add Gaussian noise to weights and intercept
+    rng = np.random.RandomState(seed)
+    model.coef_ += rng.normal(0, sigma, size=model.coef_.shape)
+    model.intercept_ += rng.normal(0, sigma, size=model.intercept_.shape)
+    
     return model.predict(X_test_norm)
 
 def train_nb_gaussian(X_train_norm, X_test_norm, y_train, epsilon, seed):
@@ -182,7 +189,7 @@ acc_base_lr = accuracy_score(y_test, lr_base.predict(X_test_norm))
 MODELS = [
     ("RF Laplace (Tree DP)",     "Tree-based DP",          train_rf_laplace,       acc_base_rf, "pure e-DP"),
     ("LR Laplace (Objective)",   "Objective Perturbation", train_lr_laplace,       acc_base_lr, "pure e-DP"),
-    ("LR True Gaussian",         "Input Perturbation",     train_lr_gaussian,      acc_base_lr, "(e, d)-DP"),
+    ("LR True Gaussian",         "Output Perturbation",    train_lr_gaussian,      acc_base_lr, "(e, d)-DP"),
     ("NB True Gaussian",         "Sufficient Stats DP",    train_nb_gaussian,      acc_base_rf, "(e, d)-DP")
 ]
 

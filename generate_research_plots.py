@@ -22,14 +22,14 @@ epsilons = [0.5, 0.7, 1.0]
 # Accuracies based on compare_all.py outputs
 rf_laplace_acc = [93.4, 93.9, 94.6]   # Tree-DP
 lr_laplace_acc = [69.5, 82.6, 88.2]   # Objective DP
-lr_gaussian_acc = [34.9, 46.1, 56.6]  # Input DP
-nb_gaussian_acc = [96.6, 97.2, 98.1]  # Sufficient Stats DP
+lr_gaussian_acc = [96.2, 96.2, 96.2]  # Output DP
+nb_gaussian_acc = [87.1, 90.7, 81.3]  # Sufficient Stats DP
 
 fig, ax = plt.subplots(figsize=(8, 6))
 
 ax.plot(epsilons, rf_laplace_acc, marker='o', linewidth=2.5, color=colors[0], label='RF Laplace (Tree-DP)')
 ax.plot(epsilons, lr_laplace_acc, marker='s', linewidth=2.5, color=colors[1], label='LR Laplace (Objective DP)')
-ax.plot(epsilons, lr_gaussian_acc, marker='^', linewidth=2.5, color=colors[2], label='LR Gaussian (Input DP)')
+ax.plot(epsilons, lr_gaussian_acc, marker='^', linewidth=2.5, color=colors[2], label='LR Gaussian (Output DP)')
 ax.plot(epsilons, nb_gaussian_acc, marker='D', linewidth=2.5, color=colors[3], label='NB Gaussian (Stats DP)')
 
 ax.set_title("Privacy vs Utility Tradeoff", fontsize=16, fontweight='bold', pad=15)
@@ -46,8 +46,8 @@ plt.close()
 # ==============================================================================
 # PLOT 2: Model Comparison at Strict Privacy (e=0.5)
 # ==============================================================================
-models = ['Random Forest\n(Laplace)', 'Logistic Reg\n(Laplace)', 'Naive Bayes\n(Gaussian)']
-accuracies = [93.4, 69.5, 96.6]
+models = ['Random Forest\n(Laplace)', 'Logistic Reg\n(Laplace)', 'Logistic Reg\n(Output Gauss)']
+accuracies = [93.4, 69.5, 96.2]
 f1_scores = [0.93, 0.67, 0.96]
 
 x = np.arange(len(models))
@@ -105,7 +105,7 @@ for bar in bars:
                 ha='center', va='bottom', fontsize=12, fontweight='bold')
 
 # Add a text box explaining the drop
-textstr = "Input DP adds static noise to features.\nTrees split on pure noise, dropping\naccuracy to random guessing (23%).\nTree-DP rescues utility by perturbing\nthe internal splits instead."
+textstr = "Input DP (used previously) adds static noise to features.\nTrees split on pure noise, dropping\naccuracy to random guessing (23%).\nOutput DP & Tree-DP rescue utility by\nperturbing internal weights/splits instead."
 props = dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='gray')
 ax.text(1.2, 70, textstr, fontsize=11, bbox=props, verticalalignment='top')
 

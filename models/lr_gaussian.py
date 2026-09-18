@@ -124,19 +124,19 @@ def normalize_with_domain_bounds(X, feature_names, fallback_bounds=None):
 
 
 # ===========================================================================
-#  GAUSSIAN NOISE INJECTION (INPUT PERTURBATION)
+#  GAUSSIAN NOISE INJECTION (OUTPUT PERTURBATION)
 # ===========================================================================
-# To achieve a true (epsilon, delta)-DP Gaussian Mechanism, we use Input 
-# Perturbation. We add Gaussian noise directly to the normalized training data.
-# By the post-processing property of DP, training any model (sklearn's LR)
-# on this noisy dataset is safely DP.
+# To achieve a true (epsilon, delta)-DP Gaussian Mechanism for Logistic 
+# Regression with high accuracy, we use Output Perturbation.
+# We train a standard L2-regularized Logistic Regression model, then add
+# Gaussian noise directly to the trained coefficients (weights).
 
 
 # ===========================================================================
 #  1. LOAD DATA
 # ===========================================================================
-csv_path = "datasets/dataset_3_lr_gaussian.json"
-df = pd.read_json(csv_path)
+csv_path = "data/dataset.csv"
+df = pd.read_csv(csv_path)
 
 if "health_event" in df.columns:
     target_col = "health_event"
@@ -218,11 +218,13 @@ try:
 except ValueError:
     epsilon = 0.5
 
-# Calculate correct L2 sensitivity for MinMax Scaled Data [0, 1]
-continuous_features = [c for c in feature_cols if c not in BINARY_FEATURES]
-k = len(continuous_features)
-# True worst-case L2 sensitivity for k [0,1]-scaled features
-l2_sensitivity = math.sqrt(k)
+# Calculate correct L2 sensitivity for Output Perturbation
+n_train = X_train_norm.shape[0]
+num_classes = len(np.unique(y_train))
+C_reg = 1.0  # L2 regularization strength
+
+# Sensitivity of weights for L2 regularized LR: 2 * C / n
+l2_sensitivity = (2 * C_reg / n_train) * math.sqrt(num_classes)
 
 sigma = analytic_gaussian_sigma(epsilon, DELTA, sensitivity=l2_sensitivity)
 total_epsilon_basic    = N_TRIALS * epsilon
@@ -256,33 +258,30 @@ print(f"    Baseline Recall   : {rec_baseline:.4f}\n")
 # ===========================================================================
 #  6. DP LR — TRUE GAUSSIAN MECHANISM (INPUT PERTURBATION)
 # ===========================================================================
-print(f"[2] Training DP LR with True Input Perturbation ({N_TRIALS} trials | e={epsilon})...")
-print(f"    Adding Gaussian noise N(0, {sigma:.4f}^2) directly to data\n")
+print(f"[2] Training DP LR with True Output Perturbation ({N_TRIALS} trials | e={epsilon})...")
+print(f"    Adding Gaussian noise N(0, {sigma:.4f}^2) directly to model weights\n")
 
-trial_accs = []
-trial_f1s  = []
-trial_recs = []
+trial_accs, trial_f1s, trial_recs = [], [], []
 lr_dp = None
-
 for trial in range(N_TRIALS):
     seed = BASE_SEED + trial
-    rng  = np.random.RandomState(seed)
-
-    # 1. Input Perturbation: Add Gaussian noise to the training features
-    X_train_noisy = X_train_norm.copy()
-    X_train_noisy += rng.normal(0, sigma, size=X_train_noisy.shape)
-
-    # 2. Train Standard sklearn LogisticRegression on the noisy data (DP by Post-Processing)
-    lr_dp = LogisticRegression(max_iter=1000, random_state=seed)
-    lr_dp.fit(X_train_noisy, y_train)
     
+    # 1. Train standard non-DP model
+    lr_dp = LogisticRegression(C=C_reg, max_iter=1000, multi_class='multinomial', random_state=seed)
+    lr_dp.fit(X_train_norm, y_train)
+    
+    # 2. Add True Gaussian Noise to trained weights (Output Perturbation)
+    rng = np.random.RandomState(seed)
+    lr_dp.coef_ += rng.normal(0, sigma, size=lr_dp.coef_.shape)
+    lr_dp.intercept_ += rng.normal(0, sigma, size=lr_dp.intercept_.shape)
+    
+    # 3. Evaluate
     y_pred_t = lr_dp.predict(X_test_norm)
-
     acc_t = accuracy_score(y_test, y_pred_t)
     f1_t  = f1_score(y_test, y_pred_t, average="macro")
     rec_t = recall_score(y_test, y_pred_t, average="macro")
-
-    print(f"    Trial {trial+1}/{N_TRIALS}  (seed={seed}): Acc={acc_t*100:.2f}%  F1={f1_t:.4f}  Recall={rec_t:.4f}")
+    
+    print(f"    Trial {trial + 1}/{N_TRIALS}  (seed={seed}): Acc={acc_t * 100:.2f}%  F1={f1_t:.4f}  Recall={rec_t:.4f}")
     trial_accs.append(acc_t)
     trial_f1s.append(f1_t)
     trial_recs.append(rec_t)

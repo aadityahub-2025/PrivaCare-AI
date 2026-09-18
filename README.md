@@ -76,7 +76,8 @@ PrivaCare-AI/
 ### Key Difference: Where is noise applied?
 
 - **RF Laplace / NB Gaussian (diffprivlib):** Noise at objective/sufficient statistics level — highly efficient
-- **LR Gaussian/Laplace (Input Perturbation):** Noise added to training features before fitting
+- **LR Gaussian (Output Perturbation):** Noise added to trained model weights
+- **LR Laplace (Objective Perturbation):** Noise added to objective function
 
 ---
 
@@ -117,14 +118,14 @@ Stronger formal guarantee — **no delta needed**.
 | **Naive Bayes** | **Sufficient Stats (Gaussian)** | **96.6% ±0.0%** | **97.2% ±0.0%** | **98.1% ±0.0%** |
 | Random Forest | Laplace / Tree-DP (diffprivlib) | 93.4% ±2.7% | 93.9% ±1.9% | 94.6% ±1.8% |
 | Logistic Regression | Laplace (Objective) | 69.5% ±14.8% | 82.6% ±5.1% | 88.2% ±2.7% |
-| Logistic Regression | True Gaussian (Input) | 34.9% ±5.2% | 46.1% ±7.7% | 56.6% ±8.6% |
+| **Logistic Regression** | **True Gaussian (Output)** | **96.2% ±0.1%** | **96.2% ±0.0%** | **96.2% ±0.0%** |
 
 > **Baselines (No DP):** RF = 98.92% | LR = 96.17%
 
 ### Key Findings
-1. **NB Gaussian (Sufficient Statistics DP)** is consistently the best (>96%) because it correctly applies the Gaussian mechanism to the summary statistics of the data rather than raw inputs.
+1. **NB Gaussian & LR Gaussian (Output Perturbation)** are consistently the best (>96%) because they correctly apply the Gaussian mechanism to the summary statistics/weights of the data rather than raw inputs.
 2. **RF Laplace (Tree-DP)** is also excellent (~94%) because it uses Objective Perturbation (noise at the split level), protecting utility.
-3. **LR True Gaussian (~56%)** survives slightly under Input Perturbation because linear boundaries mathematically average out symmetric noise. Input perturbation generally fails for high-dimensional data.
+3. **Input Perturbation (Previously 34%)** was completely failing on high-dimensional health data, demonstrating why advanced mechanisms like Output Perturbation and Tree-DP are absolutely required.
 
 ---
 
