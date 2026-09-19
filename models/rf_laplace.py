@@ -109,7 +109,7 @@ print(f"  Features: {FEATURE_COLS}\n")
 
 print("  +--[ PRIVACY SCOPE NOTE ]" + "-"*35 + "+")
 print(f"  | Target label ('{target_col}') is NOT DP-protected.              |")
-print("  | Tree-based DP: Exponential Mech for splits + Laplace for leaves.|")
+print("  | Tree-based DP: Random splits + PermuteAndFlip leaf labels.  |")
 print("  | Pure epsilon-DP — no delta required.                        |")
 print("  +" + "-"*59 + "+\n")
 
@@ -240,7 +240,7 @@ print(f"  Accuracy Drop (Privacy Cost)           : {(acc_baseline - acc_dp) * 10
 print(f"  Mechanism                              : Tree-based DP (diffprivlib)")
 print(f"  " + "-"*58)
 print(f"  PRIVACY BUDGET ACCOUNTING:")
-print(f"    Mechanism                : Tree-based DP (Exponential + Laplace)")
+print(f"    Mechanism                : Tree-based DP (Random splits + PermuteAndFlip)")
 print(f"    Per-run guarantee        : pure {epsilon}-DP  (NO delta needed)")
 print(f"    Total consumed (basic)   : {total_epsilon_basic:.4f}-DP  <-- {N_TRIALS} runs x e={epsilon}")
 print(f"    (Advanced composition not applicable for pure epsilon-DP)")
