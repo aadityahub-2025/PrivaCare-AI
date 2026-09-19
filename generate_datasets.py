@@ -9,7 +9,7 @@ Clinical Distribution Design:
         Class 1 is centered at 112.0 mg/dL (exact midpoint of 100-125 mg/dL prediabetic range).
     - American Heart Association / American College of Cardiology (AHA/ACC 2017) Guidelines:
         Normal systolic BP: < 120 mmHg; Stage 1 Hypertension: 130-139 mmHg; Stage 2: >= 140 mmHg.
-    - Autonomic & Psychological Stress Scale (Cohen et al., 1983 PSS-10 / Wearable Stress Index):
+    - Autonomic & Psychological Stress Scale (Cohen et al., 1983 PSS / Wearable Stress Composite Index):
         Normalized [0.0, 1.0]: Low/quiescent: 0.20; Moderate: 0.44; Elevated: 0.66; High strain: 0.79.
     - Clinical Cardiology consensus:
         Normal resting heart rate: 60-100 BPM; elevated in stress/hypertension/metabolic risk.

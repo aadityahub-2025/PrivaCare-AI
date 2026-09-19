@@ -306,7 +306,17 @@ def main():
     os.makedirs("results", exist_ok=True)
     with open("results/compare_all.txt", "w", encoding="utf-8") as f:
         f.write(summary_text)
-    print("  Results saved to results/compare_all.txt (UTF-8 encoded)\n")
+    print("  Results saved to results/compare_all.txt (UTF-8 encoded)")
+
+    # Save to results/benchmark_results.json for dynamic plotting
+    import json
+    json_data = {
+        "epsilons": EPSILONS,
+        "results": results
+    }
+    with open("results/benchmark_results.json", "w", encoding="utf-8") as f:
+        json.dump(json_data, f, indent=2)
+    print("  Results saved to results/benchmark_results.json\n")
 
 if __name__ == "__main__":
     main()

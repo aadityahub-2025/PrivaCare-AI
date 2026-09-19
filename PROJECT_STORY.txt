@@ -65,7 +65,7 @@ A. ORIGINAL REFERENCE DATA:
    - Size: 6,000 rows, 4,233 unique patients, 18 columns.
    - Important finding: Kaggle reference data me ~61% rows synthetic the aur
      classes 1-3 lagbhag 80% synthetic the. Class 2 me glucose mean ~55 mg/dL tha
-     (jo clinical sense me unrepresentative outlier tha).
+     (jahan raw cluster statistics clinical standards se materially deviate karti hain).
 
 B. CLINICAL DISTRIBUTION DESIGN (NOT FITTED TO DATASET.CSV):
    - To ensure medical validity and avoid Kaggle data anomalies, class profiles

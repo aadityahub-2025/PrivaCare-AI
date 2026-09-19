@@ -57,7 +57,7 @@ X1_tr, X1_te, y1_tr, y1_te = train_test_split(X1, y1, test_size=0.2, random_stat
 nb_model = dp.GaussianNB(epsilon=epsilon, bounds=([0.0]*4, [1.0]*4))
 nb_model.fit(X1_tr, y1_tr)
 nb_preds = nb_model.predict(X1_te)
-cm_nb = confusion_matrix(y1_te, nb_preds)
+cm_nb = confusion_matrix(y1_te, nb_preds, labels=[0, 1, 2, 3])
 
 # Model 2: Random Forest (Tree-DP)
 df2 = pd.read_json("datasets/dataset_2_rf_laplace.json")
@@ -67,7 +67,7 @@ X2_tr, X2_te, y2_tr, y2_te = train_test_split(X2, y2, test_size=0.2, random_stat
 rf_model = dp.RandomForestClassifier(n_estimators=20, max_depth=10, epsilon=epsilon, bounds=([0.0]*4, [1.0]*4), classes=np.unique(y2_tr), random_state=42)
 rf_model.fit(X2_tr, y2_tr)
 rf_preds = rf_model.predict(X2_te)
-cm_rf = confusion_matrix(y2_te, rf_preds)
+cm_rf = confusion_matrix(y2_te, rf_preds, labels=[0, 1, 2, 3])
 
 # Model 3: Logistic Regression (Output Gaussian DP)
 df3 = pd.read_json("datasets/dataset_3_lr_gaussian.json")
@@ -83,7 +83,7 @@ lr_g_clf.fit(X3_tr, y3_tr)
 rng = np.random.RandomState(42)
 noisy_W = lr_g_clf.coef_ + rng.normal(0, sigma, size=lr_g_clf.coef_.shape)
 lr_g_preds = np.argmax(X3_te @ noisy_W.T, axis=1)
-cm_lr_g = confusion_matrix(y3_te, lr_g_preds)
+cm_lr_g = confusion_matrix(y3_te, lr_g_preds, labels=[0, 1, 2, 3])
 
 # Model 4: Logistic Regression (Objective Laplace DP)
 df4 = pd.read_json("datasets/dataset_4_lr_laplace.json")
@@ -99,7 +99,7 @@ X4_tr, X4_te, y4_tr, y4_te = train_test_split(X4_norm, y4, test_size=0.2, random
 lr_l_model = dp.LogisticRegression(epsilon=epsilon, data_norm=4.0, random_state=42)
 lr_l_model.fit(X4_tr, y4_tr)
 lr_l_preds = lr_l_model.predict(X4_te)
-cm_lr_l = confusion_matrix(y4_te, lr_l_preds)
+cm_lr_l = confusion_matrix(y4_te, lr_l_preds, labels=[0, 1, 2, 3])
 
 # Plot 2x2 grid
 fig, axes = plt.subplots(2, 2, figsize=(14, 12))
