@@ -30,6 +30,34 @@ Features used (4 core physiological features, same across all models):
 
 
 --------------------------------------------------------------------------------
+1.1 SMART RING IOT TELEMETRY & RESEARCH PAPER ARCHITECTURE
+--------------------------------------------------------------------------------
+
+Smart Ring Sensors (Oura Ring Gen 3/4, Ultrahuman Ring AIR, Galaxy Ring) continuous tracking:
+  - Optical PPG Sensor             -> Heart Rate (BPM)
+  - HRV / EDA Autonomic Composite   -> Stress Index (0.0 - 1.0)
+  - Pulse Wave Velocity (PWV)      -> Systolic Blood Pressure (mmHg)
+  - Interstitial Optical Sensor    -> Glucose Level (mg/dL)
+
+End-to-End Pipeline for Research Paper:
+  [ Smart Ring Telemetry Ingestion ]
+                 │
+                 ▼
+  [ Clinical Bounds Clipping & MinMax Scaling to [0,1] ]
+                 │
+                 ▼
+  [ Differential Privacy Layer: Sufficient Statistics Laplace Perturbation ]
+    - IBM diffprivlib GaussianNB (models/smart_ring_dp_pipeline.py & models/rf_gaussian.py)
+    - Guarantee: Pure Epsilon-DP (delta = 0.0)
+                 │
+                 ▼
+  [ Privacy-Protected Machine Learning Classifier ]
+                 │
+                 ▼
+  [ Privacy-Safe Health Output: Healthy | Pre-diabetic | Hypertensive | Metabolic Risk ]
+
+
+--------------------------------------------------------------------------------
 2. DIFFERENTIAL PRIVACY KYA HAI? (Formal Privacy Guarantees)
 --------------------------------------------------------------------------------
 

@@ -19,7 +19,44 @@
 - Evaluate exact **pure $\epsilon$-DP** (Laplace / PermuteAndFlip / Vector Perturbation) vs approximate $(\epsilon, \delta)$-DP (Analytic Gaussian Mechanism).
 - Enforce **data-independent domain bounds** and bias regularization to preserve formal mathematical DP guarantees.
 - Conduct multi-trial evaluation across **independent synthetic benchmark replicates** (80,000 samples per replicate, $N=30$ trials).
-- Generate publication-ready visualizations: tradeoff curves, model comparisons, privacy cost bars, and confusion matrices.
+---
+
+## 💍 Smart Ring IoT Telemetry Differential Privacy Architecture (Paper Implementation)
+
+```
+ [ Smart Ring Wearable Telemetry ]
+   ├─ Optical PPG Sensor  ──────> Heart Rate (BPM)
+   ├─ HRV / EDA Sensor    ──────> Autonomic Wearable Stress Index
+   ├─ Pulse Wave Velocity ──────> Systolic Blood Pressure (mmHg)
+   └─ Interstitial Optical ─────> Glucose Level Estimation (mg/dL)
+                    │
+                    ▼
+ [ Sensitive Data Preprocessing Layer ]
+   └─ Data-Independent Domain Clipping & MinMax Scaling to [0.0, 1.0]
+                    │
+                    ▼
+ [ Differential Privacy Perturbation Engine ]
+   └─ Sufficient Statistics Laplace Perturbation (diffprivlib GaussianNB)
+   └─ Privacy Guarantee: Pure Epsilon-DP (delta = 0.0)
+                    │
+                    ▼
+ [ Privacy-Protected Machine Learning Classifier ]
+   └─ Gaussian Naive Bayes DP Model Inference
+                    │
+                    ▼
+ [ Privacy-Safe Clinical Health Output & Alert Engine ]
+   └─ Health States: Healthy | Pre-diabetic | Hypertensive | Metabolic Risk
+```
+
+### 🔬 Smart Ring Telemetry Paper Workflow:
+1. **Telemetry Ingestion**: Continuous sensor readings from wearable smart rings (Oura Ring / Ultrahuman / Galaxy Ring) capture sensitive physiological signals.
+2. **Clinical Domain Bounds Clipping**: Ingested signals are clipped to established clinical bounds ($Glucose \in [30, 300]$, $Stress \in [0.0, 1.0]$, $HR \in [30, 220]$, $BP \in [60, 250]$) and normalized to $[0, 1]$.
+3. **Sufficient Statistics Perturbation**: Rather than exposing raw sensor streams or unperturbed counts to the cloud server, Laplace noise is added directly to per-class sufficient statistics (sample counts, feature sums, and sums of squares), ensuring mathematical **Pure $\epsilon$-DP ($\delta=0$)**.
+4. **Privacy-Safe Inference**: The cloud or edge classifier yields accurate health classifications without storing or revealing any individual patient's raw telemetry stream.
+5. **Run the Live Telemetry Pipeline**:
+   ```bash
+   python models/smart_ring_dp_pipeline.py 0.5
+   ```
 
 ---
 
@@ -37,7 +74,8 @@ PrivaCare-AI/
 │   ├── dataset_3_lr_gaussian.json         # Replicate 3 (seed=43) -> models/lr_gaussian.py
 │   └── dataset_4_lr_laplace.json          # Replicate 4 (seed=44) -> models/lr_laplace.py
 │
-├── models/                                # 4 Dedicated DP Training Scripts
+├── models/                                # Dedicated DP Training Scripts & IoT Pipeline
+│   ├── smart_ring_dp_pipeline.py          # 💍 Smart Ring Telemetry Differential Privacy Pipeline (PRIMARY)
 │   ├── rf_gaussian.py                     # Gaussian Naive Bayes (Sufficient Stats DP, pure ε-DP)
 │   ├── rf_laplace.py                      # Random Forest (Tree-based DP, pure ε-DP)
 │   ├── lr_gaussian.py                     # Logistic Regression (Analytic Gaussian Output DP, (ε,δ)-DP)
