@@ -10,14 +10,13 @@ DP Approach (Tree-based DP — diffprivlib RandomForestClassifier):
   - Guarantee: Pure epsilon-DP (exact, no delta approximation needed)
 
 Why better than naive Laplace Input Perturbation:
-  - Input Perturbation on 13 features: Laplace scale b = 13/0.5 = 26 -> destroys signal
-  - Tree-DP perturbs splits and leaves directly -> much smaller effective noise
+  - Input Perturbation on features adds noise directly to features, degrading signal
+  - Tree-DP constructs trees via random splits and uses PermuteAndFlip for leaf labels
   - diffprivlib handles all DP internals correctly
 
 Dataset  : datasets/dataset_2_rf_laplace.json  (ONLY this file — no other dataset)
 Reference: Dwork & Roth (2014) "Algorithmic Foundations of DP"
            Fletcher & Islam (2019) "Decision Tree Classification with Differential Privacy"
-           diffprivlib: Holohan et al. (2019), IBM Research
 """
 
 import numpy as np
@@ -41,7 +40,7 @@ warnings.filterwarnings("once")
 #  CONFIGURATION
 # ===========================================================================
 DATASET_PATH = "datasets/dataset_2_rf_laplace.json"   # ONLY this dataset
-N_TRIALS     = 3
+N_TRIALS     = 30
 N_ESTIMATORS = 20     # DP RF: more trees = more epsilon budget split; 20 is good balance
 BASE_SEED    = 42
 
@@ -61,11 +60,16 @@ DOMAIN_BOUNDS = [
     (60,   250),     # blood_pressure_systolic
 ]
 
+BOUNDS = (
+    [0.0] * len(FEATURE_COLS),
+    [1.0] * len(FEATURE_COLS)
+)
+
 GENDER_MAP = {"male": 1, "m": 1, "female": 0, "f": 0, "woman": 0, "man": 1}
 
 # ===========================================================================
 #  DATA-INDEPENDENT NORMALIZATION — MinMax to [0, 1]
-#  diffprivlib RF requires bounds = ([lo,...], [hi,...])
+#  Uses fixed DOMAIN_BOUNDS so normalization is data-independent (DP-safe)
 # ===========================================================================
 def normalize_features(X):
     X_norm = X.copy().astype(float)
@@ -73,10 +77,6 @@ def normalize_features(X):
         X_norm[:, i] = np.clip(X_norm[:, i], lo, hi)
         X_norm[:, i] = (X_norm[:, i] - lo) / (hi - lo + 1e-12)
     return X_norm
-
-LOWER_BOUNDS = [0.0] * len(FEATURE_COLS)
-UPPER_BOUNDS = [1.0] * len(FEATURE_COLS)
-BOUNDS = (LOWER_BOUNDS, UPPER_BOUNDS)
 
 
 # ===========================================================================
@@ -88,14 +88,15 @@ df = pd.read_json(DATASET_PATH)
 if "gender" in df.columns and df["gender"].dtype == object:
     df["gender"] = df["gender"].str.strip().str.lower().map(GENDER_MAP).fillna(0).astype(int)
 
+# Target column
 target_col = "health_event"
 X  = df[FEATURE_COLS].values.astype(float)
 le = LabelEncoder()
 y  = le.fit_transform(df[target_col].values)
 
-n_features = len(FEATURE_COLS)
-n_classes  = len(le.classes_)
-n_total    = len(X)
+n_features  = len(FEATURE_COLS)
+n_classes   = len(le.classes_)
+n_total     = len(X)
 
 print(f"\n{'='*60}")
 print(f"  PrivaCare-AI -- Laplace Mechanism DP Training")
@@ -177,14 +178,14 @@ print(f"    Baseline F1 Score : {f1_baseline:.4f}")
 print(f"    Baseline Recall   : {rec_baseline:.4f}\n")
 
 # ===========================================================================
-#  6. DP RF — TREE-BASED DP (Laplace, pure epsilon-DP)
+#  6. DP RF — TREE-BASED DP (PermuteAndFlip, pure epsilon-DP)
 #
 #  Algorithm (diffprivlib RandomForestClassifier):
-#    1. Build each tree using Exponential Mechanism for split selection
-#    2. Add Laplace noise to leaf class counts
+#    1. Construct decision trees using random split criteria over domain bounds
+#    2. Apply PermuteAndFlip mechanism to choose noisy leaf node labels
 #    3. Aggregate tree predictions for final classification
-#    4. Guarantee: pure epsilon-DP (Dwork & Roth, 2014)
-# ===========================================================================
+#    4. Guarantee: pure epsilon-DP (no delta required)
+# ===========================================================================================
 print(f"[2] Training DP RF with Tree-based Laplace DP ({N_TRIALS} trials | e={epsilon})...")
 print(f"    Using diffprivlib RandomForestClassifier | pure epsilon-DP\n")
 

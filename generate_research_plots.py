@@ -9,32 +9,32 @@ colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
 os.makedirs("visualizations", exist_ok=True)
 
 # Delete old graphs
-old_graphs = [f for f in os.listdir("visualizations") if f.endswith(".png")]
+old_graphs = [f for f in os.listdir("visualizations") if f.endswith(".png") and not f.startswith("fig4")]
 for g in old_graphs:
     os.remove(os.path.join("visualizations", g))
 
 # ==============================================================================
-# PLOT 1: Privacy vs Utility Tradeoff Curve
+# PLOT 1: Privacy vs Utility Tradeoff Curve (N=30 Trials)
 # ==============================================================================
 epsilons = [0.5, 0.7, 1.0]
 
-# Accuracies based on standardized benchmark runs (compare_all.py)
-nb_gaussian_acc = [93.12, 97.30, 99.77]  # Sufficient Stats DP (pure e-DP)
-rf_laplace_acc  = [99.21, 99.22, 99.19]  # Tree-based DP (pure e-DP)
-lr_gaussian_acc = [98.66, 99.15, 99.32]  # Output Perturbation ((e, d)-DP)
-lr_laplace_acc  = [97.67, 98.02, 98.32]  # Objective Perturbation (pure e-DP)
+# Accuracies based on 30-trial benchmark (compare_all.py)
+nb_gaussian_acc = [97.26, 98.21, 98.49]  # Sufficient Stats DP (pure e-DP)
+rf_laplace_acc  = [99.12, 99.13, 99.13]  # Tree-based DP (pure e-DP)
+lr_gaussian_acc = [94.76, 97.24, 98.34]  # Output Perturbation ((e, d)-DP)
+lr_laplace_acc  = [97.82, 98.22, 98.53]  # Objective Perturbation (pure e-DP)
 
 fig, ax = plt.subplots(figsize=(8.5, 6))
 
 ax.plot(epsilons, rf_laplace_acc, marker='o', linewidth=2.5, color=colors[0], label='Random Forest (Tree-DP, pure e-DP)')
+ax.plot(epsilons, lr_laplace_acc, marker='s', linewidth=2.5, color=colors[2], label='Logistic Reg (Objective Perturbation, pure e-DP)')
 ax.plot(epsilons, lr_gaussian_acc, marker='^', linewidth=2.5, color=colors[1], label='Logistic Reg (Output Gauss, (e,d)-DP)')
-ax.plot(epsilons, lr_laplace_acc, marker='s', linewidth=2.5, color=colors[2], label='Logistic Reg (Objective Lap, pure e-DP)')
 ax.plot(epsilons, nb_gaussian_acc, marker='D', linewidth=2.5, color=colors[3], label='Gaussian NB (Sufficient Stats, pure e-DP)')
 
-ax.set_title("Privacy vs Utility Tradeoff Across DP Mechanisms", fontsize=15, fontweight='bold', pad=15)
+ax.set_title(r"Privacy vs Utility Tradeoff Across DP Mechanisms ($N=30$ Trials)", fontsize=14, fontweight='bold', pad=15)
 ax.set_xlabel(r'Privacy Budget ($\epsilon$)', fontsize=13)
 ax.set_ylabel('Model Accuracy (%)', fontsize=13)
-ax.set_ylim(90, 100.5)
+ax.set_ylim(92, 100.5)
 ax.set_xticks(epsilons)
 ax.legend(loc='lower right', frameon=True, shadow=True, fontsize=10)
 
@@ -43,7 +43,7 @@ plt.savefig("visualizations/fig1_privacy_utility_curve.png", dpi=300)
 plt.close()
 
 # ==============================================================================
-# PLOT 2: Model Comparison at Strict Privacy (e=0.5)
+# PLOT 2: Model Comparison at Strict Privacy (e=0.5, N=30 Trials)
 # ==============================================================================
 models = [
     'Gaussian NB\n(Stats DP)',
@@ -51,8 +51,8 @@ models = [
     'Logistic Reg\n(Output Gauss)',
     'Logistic Reg\n(Objective Lap)'
 ]
-accuracies = [93.12, 99.21, 98.66, 97.67]
-f1_scores  = [0.9253, 0.9920, 0.9866, 0.9767]
+accuracies = [97.26, 99.12, 94.76, 97.82]
+f1_scores  = [0.9713, 0.9912, 0.9460, 0.9781]
 
 x = np.arange(len(models))
 width = 0.35
@@ -61,11 +61,11 @@ fig, ax = plt.subplots(figsize=(10, 6))
 rects1 = ax.bar(x - width/2, accuracies, width, label='Accuracy (%)', color='#2b5c8f', alpha=0.9)
 rects2 = ax.bar(x + width/2, [f*100 for f in f1_scores], width, label='F1 Score (x100)', color='#e27c3e', alpha=0.9)
 
-ax.set_title(r"Performance at Strict Privacy Budget ($\epsilon=0.5$)", fontsize=15, fontweight='bold', pad=15)
+ax.set_title(r"Performance at Strict Privacy Budget ($\epsilon=0.5, N=30$ Trials)", fontsize=14, fontweight='bold', pad=15)
 ax.set_ylabel('Score (%)', fontsize=13)
 ax.set_xticks(x)
 ax.set_xticklabels(models, fontsize=11)
-ax.set_ylim(85, 103)
+ax.set_ylim(88, 103)
 ax.legend(loc='upper right', fontsize=11)
 
 def autolabel(rects):
@@ -94,9 +94,9 @@ fig, ax = plt.subplots(figsize=(9, 5.5))
 bar_colors = ['#d95f02', '#1b9e77', '#7570b3', '#e7298a']
 bars = ax.bar(models, drops, color=bar_colors, width=0.55, alpha=0.9)
 
-ax.set_title(r"Privacy Cost: Accuracy Drop from Non-DP Baseline ($\epsilon=0.5$)", fontsize=15, fontweight='bold', pad=15)
+ax.set_title(r"Privacy Cost: Accuracy Drop from Non-DP Baseline ($\epsilon=0.5, N=30$)", fontsize=14, fontweight='bold', pad=15)
 ax.set_ylabel('Accuracy Drop (Percentage Points)', fontsize=13)
-ax.set_ylim(0, 8.0)
+ax.set_ylim(0, 6.0)
 
 for bar in bars:
     height = bar.get_height()
@@ -110,4 +110,4 @@ plt.tight_layout()
 plt.savefig("visualizations/fig3_privacy_cost.png", dpi=300)
 plt.close()
 
-print("[+] Successfully generated 3 updated research plots in 'visualizations/'")
+print("[+] Successfully regenerated research plots with N=30 benchmark numbers in visualizations/")

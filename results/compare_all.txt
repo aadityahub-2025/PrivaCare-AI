@@ -1,27 +1,27 @@
-=====================================================================================
-  PRIVACARE-AI: FULL BENCHMARK RESULTS
-=====================================================================================
+============================================================================================
+  PRIVACARE-AI: FULL BENCHMARK RESULTS (N=30 Trials, UTF-8 Encoded)
+============================================================================================
 
-Model                     Mechanism                DP Type     Baseline   |       e=0.5       |       e=0.7       |       e=1.0      
--------------------------------------------------------------------------------------------------------------------------------------
-Gaussian Naive Bayes      Sufficient Stats DP      pure e-DP   99.88%     |   93.12%±5.57%    |   97.30%±3.69%    |   99.77%±0.10%   
-Random Forest (Laplace)   Tree-based DP            pure e-DP   99.66%     |   99.21%±0.21%    |   99.22%±0.24%    |   99.19%±0.27%   
-Logistic Reg (Gaussian)   Output Perturbation      (e, d)-DP   99.19%     |   98.66%±0.76%    |   99.15%±0.26%    |   99.32%±0.17%   
-Logistic Reg (Laplace)    Objective Perturbation   pure e-DP   99.83%     |   97.67%±0.54%    |   98.02%±0.42%    |   98.32%±0.35%   
+Model                     Mechanism                DP Type     Baseline   |        e=0.5        |        e=0.7        |        e=1.0       
+-------------------------------------------------------------------------------------------------------------------------------------------
+Gaussian Naive Bayes      Sufficient Stats DP      pure e-DP   99.88%     |  97.26% +/- 3.67%   |  98.21% +/- 2.77%   |  98.49% +/- 3.51%  
+Random Forest             Tree-based DP            pure e-DP   99.66%     |  99.12% +/- 0.43%   |  99.13% +/- 0.43%   |  99.13% +/- 0.43%  
+Logistic Reg (Gaussian)   Output Perturbation      (e, d)-DP   99.19%     |  94.76% +/- 4.82%   |  97.24% +/- 2.33%   |  98.34% +/- 1.15%  
+Logistic Reg (Laplace)    Objective Perturbation   pure e-DP   99.83%     |  97.82% +/- 0.86%   |  98.22% +/- 0.66%   |  98.53% +/- 0.51%  
 
   -- F1 Scores (Macro Average) --
 
 Model                     Mechanism                |    e=0.5     |    e=0.7     |    e=1.0    
 -----------------------------------------------------------------------------------------------
-Gaussian Naive Bayes      Sufficient Stats DP      |    0.9253    |    0.9715    |    0.9977   
-Random Forest (Laplace)   Tree-based DP            |    0.9920    |    0.9922    |    0.9918   
-Logistic Reg (Gaussian)   Output Perturbation      |    0.9866    |    0.9915    |    0.9932   
-Logistic Reg (Laplace)    Objective Perturbation   |    0.9767    |    0.9801    |    0.9832   
+Gaussian Naive Bayes      Sufficient Stats DP      |    0.9713    |    0.9816    |    0.9837   
+Random Forest             Tree-based DP            |    0.9912    |    0.9913    |    0.9913   
+Logistic Reg (Gaussian)   Output Perturbation      |    0.9460    |    0.9721    |    0.9833   
+Logistic Reg (Laplace)    Objective Perturbation   |    0.9781    |    0.9821    |    0.9853   
 
-=====================================================================================
-  EMPIRICAL RESEARCH FINDINGS (COMPUTED DYNAMICALLY):
-  * Gaussian Naive Bayes     : Baseline = 99.88%. At strict privacy (e=0.5), accuracy drop is 6.76%. Relaxing budget to e=1.0 recovers +6.65% accuracy.
-  * Random Forest (Laplace)  : Baseline = 99.66%. At strict privacy (e=0.5), accuracy drop is 0.46%. Relaxing budget to e=1.0 recovers +-0.02% accuracy.
-  * Logistic Reg (Gaussian)  : Baseline = 99.19%. At strict privacy (e=0.5), accuracy drop is 0.53%. Relaxing budget to e=1.0 recovers +0.66% accuracy.
-  * Logistic Reg (Laplace)   : Baseline = 99.83%. At strict privacy (e=0.5), accuracy drop is 2.16%. Relaxing budget to e=1.0 recovers +0.65% accuracy.
-=====================================================================================
+============================================================================================
+  EMPIRICAL RESEARCH FINDINGS (COMPUTED DYNAMICALLY OVER N=30 TRIALS):
+  * Gaussian Naive Bayes     : Baseline = 99.88%. At strict privacy (e=0.5), accuracy drop is 2.61%. Relaxing budget to e=1.0 recovers +1.22% accuracy.
+  * Random Forest            : Baseline = 99.66%. At strict privacy (e=0.5), accuracy drop is 0.54%. Relaxing budget to e=1.0 recovers +0.01% accuracy.
+  * Logistic Reg (Gaussian)  : Baseline = 99.19%. At strict privacy (e=0.5), accuracy drop is 4.43%. Relaxing budget to e=1.0 recovers +3.58% accuracy.
+  * Logistic Reg (Laplace)   : Baseline = 99.83%. At strict privacy (e=0.5), accuracy drop is 2.02%. Relaxing budget to e=1.0 recovers +0.71% accuracy.
+============================================================================================

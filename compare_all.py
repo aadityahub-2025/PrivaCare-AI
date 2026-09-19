@@ -2,13 +2,14 @@
 PrivaCare-AI - compare_all.py
 Combined benchmark and comparison across all 4 DP models and mechanisms.
 
-Each model evaluates on its dedicated independent synthetic replicate dataset:
+Each model evaluates on its dedicated independent synthetic benchmark replicate:
   - Model 1: Gaussian Naive Bayes (diffprivlib GaussianNB) -> datasets/dataset_1_rf_gaussian.json
   - Model 2: Random Forest (diffprivlib RandomForest)      -> datasets/dataset_2_rf_laplace.json
   - Model 3: Logistic Regression (Output Gaussian DP)      -> datasets/dataset_3_lr_gaussian.json
   - Model 4: Logistic Regression (Objective Laplace DP)    -> datasets/dataset_4_lr_laplace.json
 
 Evaluates accuracy, F1 score, and privacy-utility tradeoff across epsilons [0.5, 0.7, 1.0].
+N_TRIALS = 30 for statistically robust means and standard deviations.
 """
 
 import math
@@ -29,7 +30,7 @@ warnings.filterwarnings("once")
 # ===========================================================================
 #  CONFIG
 # ===========================================================================
-N_TRIALS  = 5
+N_TRIALS  = 30
 BASE_SEED = 42
 DELTA     = 1e-5
 EPSILONS  = [0.5, 0.7, 1.0]
@@ -93,7 +94,6 @@ def eval_nb_gaussian():
     X_tr_norm = normalize(X_tr, FEATURE_COLS)
     X_te_norm = normalize(X_te, FEATURE_COLS)
 
-    # Baseline
     base_clf = GaussianNB()
     base_clf.fit(X_tr_norm, y_tr)
     base_acc = accuracy_score(y_te, base_clf.predict(X_te_norm))
@@ -117,7 +117,6 @@ def eval_rf_laplace():
     X_tr_norm = normalize(X_tr, FEATURE_COLS)
     X_te_norm = normalize(X_te, FEATURE_COLS)
 
-    # Baseline
     base_clf = RandomForestClassifier(n_estimators=20, random_state=BASE_SEED, n_jobs=-1)
     base_clf.fit(X_tr_norm, y_tr)
     base_acc = accuracy_score(y_te, base_clf.predict(X_te_norm))
@@ -133,7 +132,7 @@ def eval_rf_laplace():
         model.fit(X_tr_norm, y_tr)
         return model.predict(X_te_norm)
 
-    return "Random Forest (Laplace)", "Tree-based DP", "pure e-DP", base_acc, y_te, train_fn
+    return "Random Forest", "Tree-based DP", "pure e-DP", base_acc, y_te, train_fn
 
 # ===========================================================================
 #  MODEL 3: Logistic Regression (Analytic Gaussian Output Perturbation)
@@ -143,7 +142,6 @@ def eval_lr_gaussian():
     X_tr_norm = normalize(X_tr, FEATURE_COLS)
     X_te_norm = normalize(X_te, FEATURE_COLS)
 
-    # Augment with constant bias column and scale to ||x||_2 <= 1
     d = len(FEATURE_COLS)
     X_tr_aug = np.hstack([X_tr_norm, np.ones((X_tr_norm.shape[0], 1))]) / math.sqrt(d + 1)
     X_te_aug = np.hstack([X_te_norm, np.ones((X_te_norm.shape[0], 1))]) / math.sqrt(d + 1)
@@ -151,10 +149,15 @@ def eval_lr_gaussian():
     C_REG = 0.02
     l2_sens = 2.0 * math.sqrt(2) * C_REG
 
-    # Baseline (fit_intercept=False on augmented data)
+    # Regularized baseline
     base_clf = LogisticRegression(C=C_REG, fit_intercept=False, max_iter=1000, multi_class='multinomial', random_state=BASE_SEED)
     base_clf.fit(X_tr_aug, y_tr)
     base_acc = accuracy_score(y_te, base_clf.predict(X_te_aug))
+
+    # Tuned non-private baseline (C=1.0)
+    tuned_clf = LogisticRegression(C=1.0, max_iter=1000, multi_class='multinomial', random_state=BASE_SEED)
+    tuned_clf.fit(X_tr, y_tr)
+    tuned_acc = accuracy_score(y_te, tuned_clf.predict(X_te))
 
     def train_fn(eps, seed):
         sigma = analytic_gaussian_sigma(eps, DELTA, sensitivity=l2_sens)
@@ -172,7 +175,6 @@ def eval_lr_gaussian():
 # ===========================================================================
 def eval_lr_laplace():
     X_tr, X_te, y_tr, y_te = load_and_split("datasets/dataset_4_lr_laplace.json")
-    # Z-score-like normalization clipped to [-2, 2]
     X_tr_norm = X_tr.copy().astype(float)
     X_te_norm = X_te.copy().astype(float)
     for i, col in enumerate(FEATURE_COLS):
@@ -184,7 +186,6 @@ def eval_lr_laplace():
 
     data_norm = 4.0
 
-    # Baseline
     base_clf = LogisticRegression(C=1.0, max_iter=1000, multi_class='multinomial', random_state=BASE_SEED)
     base_clf.fit(X_tr_norm, y_tr)
     base_acc = accuracy_score(y_te, base_clf.predict(X_te_norm))
@@ -201,11 +202,11 @@ def eval_lr_laplace():
 #  MAIN BENCHMARK RUNNER
 # ===========================================================================
 def main():
-    print("\n" + "="*75)
+    print("\n" + "="*78)
     print("  PrivaCare-AI -- Comprehensive DP Benchmark (compare_all.py)")
     print(f"  Epsilons : {EPSILONS} | Trials: {N_TRIALS} per configuration")
     print(f"  Delta    : {DELTA} (for approximate DP models)")
-    print("="*75 + "\n")
+    print("="*78 + "\n")
 
     evaluators = [
         eval_nb_gaussian,
@@ -239,7 +240,7 @@ def main():
             acc_s = float(np.std(accs)) * 100
             f1_m  = float(np.mean(f1s))
 
-            row[f"e={eps} Acc"] = f"{acc_m:.2f}%±{acc_s:.2f}%"
+            row[f"e={eps} Acc"] = f"{acc_m:.2f}% +/- {acc_s:.2f}%"
             row[f"e={eps} F1"]  = f"{f1_m:.4f}"
             row[f"e_{eps}_acc_mean"] = acc_m
             row[f"e_{eps}_acc_std"]  = acc_s
@@ -252,19 +253,19 @@ def main():
     #  FORMAT SUMMARY TABLES
     # ===========================================================================
     output_lines = []
-    output_lines.append("="*85)
-    output_lines.append("  PRIVACARE-AI: FULL BENCHMARK RESULTS")
-    output_lines.append("="*85)
+    output_lines.append("="*92)
+    output_lines.append("  PRIVACARE-AI: FULL BENCHMARK RESULTS (N=30 Trials, UTF-8 Encoded)")
+    output_lines.append("="*92)
 
-    hdr = f"{'Model':<25} {'Mechanism':<24} {'DP Type':<11} {'Baseline':<10} | {'e=0.5':^17} | {'e=0.7':^17} | {'e=1.0':^17}"
+    hdr = f"{'Model':<25} {'Mechanism':<24} {'DP Type':<11} {'Baseline':<10} | {'e=0.5':^19} | {'e=0.7':^19} | {'e=1.0':^19}"
     output_lines.append("\n" + hdr)
     output_lines.append("-" * len(hdr))
 
     for r in results:
         line = (f"{r['Model']:<25} {r['Mechanism']:<24} {r['DP Type']:<11} {r['Baseline']:<10} | "
-                f"{r['e=0.5 Acc']:^17} | "
-                f"{r['e=0.7 Acc']:^17} | "
-                f"{r['e=1.0 Acc']:^17}")
+                f"{r['e=0.5 Acc']:^19} | "
+                f"{r['e=0.7 Acc']:^19} | "
+                f"{r['e=1.0 Acc']:^19}")
         output_lines.append(line)
 
     output_lines.append("\n  -- F1 Scores (Macro Average) --\n")
@@ -279,8 +280,8 @@ def main():
         output_lines.append(line2)
 
     # Dynamic Key Empirical Findings
-    output_lines.append("\n" + "="*85)
-    output_lines.append("  EMPIRICAL RESEARCH FINDINGS (COMPUTED DYNAMICALLY):")
+    output_lines.append("\n" + "="*92)
+    output_lines.append("  EMPIRICAL RESEARCH FINDINGS (COMPUTED DYNAMICALLY OVER N=30 TRIALS):")
     for r in results:
         base_num = r["base_acc_raw"] * 100
         e05_num  = r["e_0.5_acc_mean"]
@@ -291,16 +292,16 @@ def main():
             f"  * {r['Model']:<25}: Baseline = {base_num:.2f}%. At strict privacy (e=0.5), accuracy drop is "
             f"{drop_05:.2f}%. Relaxing budget to e=1.0 recovers +{recovery:.2f}% accuracy."
         )
-    output_lines.append("="*85 + "\n")
+    output_lines.append("="*92 + "\n")
 
     summary_text = "\n".join(output_lines)
     print(summary_text)
 
-    # Save to results/compare_all.txt
+    # Save to results/compare_all.txt with UTF-8 encoding
     os.makedirs("results", exist_ok=True)
-    with open("results/compare_all.txt", "w") as f:
+    with open("results/compare_all.txt", "w", encoding="utf-8") as f:
         f.write(summary_text)
-    print("  Results saved to results/compare_all.txt\n")
+    print("  Results saved to results/compare_all.txt (UTF-8 encoded)\n")
 
 if __name__ == "__main__":
     main()

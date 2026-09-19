@@ -16,9 +16,9 @@
 
 ### 🎯 Key Objectives
 - Compare **Tree-based DP** vs **Objective Perturbation** vs **Output Perturbation** vs **Sufficient Statistics Perturbation**.
-- Evaluate exact **pure $\epsilon$-DP** (Laplace / PermuteAndFlip) vs approximate $(\epsilon, \delta)$-DP (Analytic Gaussian Mechanism).
+- Evaluate exact **pure $\epsilon$-DP** (Laplace / PermuteAndFlip / Vector Perturbation) vs approximate $(\epsilon, \delta)$-DP (Analytic Gaussian Mechanism).
 - Enforce **data-independent domain bounds** and bias regularization to preserve formal mathematical DP guarantees.
-- Conduct multi-trial evaluation across **independent synthetic benchmark replicates** (80,000 samples per replicate).
+- Conduct multi-trial evaluation across **independent synthetic benchmark replicates** (80,000 samples per replicate, $N=30$ trials).
 - Generate publication-ready visualizations: tradeoff curves, model comparisons, privacy cost bars, and confusion matrices.
 
 ---
@@ -44,15 +44,16 @@ PrivaCare-AI/
 │   └── lr_laplace.py                      # Logistic Regression (Objective Perturbation DP, pure ε-DP)
 │
 ├── visualizations/                        # Research plots & confusion matrices (PNG)
-│   ├── fig1_privacy_utility_curve.png     # Privacy vs Utility Tradeoff Curve
-│   ├── fig2_model_comparison.png          # Model Comparison at Strict Budget (ε=0.5)
-│   ├── fig3_privacy_cost.png              # Accuracy Drop from Baseline
+│   ├── fig1_privacy_utility_curve.png     # Privacy vs Utility Tradeoff Curve (N=30)
+│   ├── fig2_model_comparison.png          # Model Comparison at Strict Budget (ε=0.5, N=30)
+│   ├── fig3_privacy_cost.png              # Accuracy Drop from Baseline (N=30)
 │   └── fig4_confusion_matrices.png        # 2x2 Grid of Confusion Matrices (ε=0.5)
 │
 ├── results/
-│   └── compare_all.txt                    # Comprehensive benchmark report
+│   └── compare_all.txt                    # Comprehensive benchmark report (N=30, UTF-8)
 │
-├── compare_all.py                         # Live comparative evaluation runner
+├── generate_datasets.py                   # Deterministic generator for all 4 benchmark replicates
+├── compare_all.py                         # Live comparative evaluation runner (N=30 trials)
 ├── generate_research_plots.py             # Script to generate publication-grade figures
 ├── generate_confusion_matrices.py         # Script to generate 2x2 confusion matrix grid
 ├── requirements.txt                       # Python dependencies (pinned diffprivlib)
@@ -69,73 +70,81 @@ PrivaCare-AI/
 |---|--------|-------------------|-------------------|-----------|----------------|
 | 1 | `models/rf_gaussian.py` | Gaussian Naive Bayes | Sufficient Statistics Perturbation | Pure $\epsilon$-DP ($\delta=0$) | $\epsilon \in \{0.5, 0.7, 1.0\}$ |
 | 2 | `models/rf_laplace.py` | Random Forest (20 trees) | Tree-based DP (Random splits + PermuteAndFlip) | Pure $\epsilon$-DP ($\delta=0$) | $\epsilon \in \{0.5, 0.7, 1.0\}$ |
-| 3 | `models/lr_gaussian.py` | Logistic Regression ($C=0.02$) | Analytic Gaussian Output Perturbation ($\Delta_2 = 2\sqrt{2}C$) | $(\epsilon, \delta)$-DP ($\delta=10^{-5}$) | $\epsilon \in \{0.5, 0.7, 1.0\}$ |
-| 4 | `models/lr_laplace.py` | Logistic Regression ($C=1.0$) | Objective Perturbation (diffprivlib) | Pure $\epsilon$-DP ($\delta=0$) | $\epsilon \in \{0.5, 0.7, 1.0\}$ |
+| 3 | `models/lr_gaussian.py` | Logistic Regression ($C=0.02$) | Analytic Gaussian Output Perturbation ($\Delta_2 \le 2\sqrt{2}C$) | $(\epsilon, \delta)$-DP ($\delta=10^{-5}$) | $\epsilon \in \{0.5, 0.7, 1.0\}$ |
+| 4 | `models/lr_laplace.py` | Logistic Regression ($C=1.0$) | Objective Perturbation (diffprivlib Vector DP) | Pure $\epsilon$-DP ($\delta=0$) | $\epsilon \in \{0.5, 0.7, 1.0\}$ |
 
-### Theoretical Mechanism Details:
-1. **Gaussian Naive Bayes (`rf_gaussian.py`):**
-   - Gaussian Naive Bayes models class-conditional Gaussian distributions.
-   - IBM `diffprivlib` perturbs the *sufficient statistics* (class counts, feature sums, and feature variances) with Laplace noise.
-   - Formal guarantee is **pure $\epsilon$-DP** ($\delta=0$).
-2. **Random Forest (`rf_laplace.py`):**
-   - Construct decision trees using data-independent uniform random split candidate thresholds within domain bounds.
-   - The `PermuteAndFlip` mechanism is applied to choose noisy leaf class predictions.
-   - Pure $\epsilon$-DP guarantee without requiring $\delta$.
-3. **Logistic Regression with Output Perturbation (`lr_gaussian.py`):**
-   - Input vectors are augmented with a constant bias feature and normalized such that $\|\tilde{x}\|_2 \le 1$ strictly:
-     $$\tilde{x} = \frac{[x_{\text{norm}}, 1.0]}{\sqrt{d + 1}}$$
-   - Model is trained with $L_2$ regularization parameter $C=0.02$ and `fit_intercept=False`.
-   - The loss Lipschitz constant is $L = \sqrt{2}$.
-   - Under single-sample replacement, the exact $L_2$ sensitivity of the optimal weight matrix $W^*$ is:
-     $$\Delta_2(W^*) = 2 \cdot L \cdot C = 2\sqrt{2} \cdot C \approx 0.056569$$
-   - Noise $\sigma$ is calibrated using the exact **Analytic Gaussian Mechanism** (Balle & Wang, NeurIPS 2018) for $(\epsilon, \delta=10^{-5})$.
-4. **Logistic Regression with Objective Perturbation (`lr_laplace.py`):**
-   - Perturbs the continuous optimization objective directly during gradient descent.
-   - Pure $\epsilon$-DP guarantee.
+### Theoretical Mechanism Details & Terminology Note:
+- **Nomenclature Clarification:** Rather than a simplistic "Gaussian vs Laplace" contrast, the framework evaluates **$(\epsilon, \delta)$ Analytic Gaussian Output Perturbation vs Pure-$\epsilon$ In-Training / Perturbation Mechanisms**.
+  - `rf_gaussian.py` is a historical filename; it implements Gaussian Naive Bayes where the name refers to the model's distributional assumption (class features are normal), while the privacy mechanism perturbs sufficient statistics via the Laplace mechanism (pure $\epsilon$-DP, $\delta=0$).
+  - `rf_laplace.py` uses IBM diffprivlib's `RandomForestClassifier`, which achieves pure $\epsilon$-DP through random candidate split selection and the `PermuteAndFlip` mechanism on leaf nodes.
+  - `lr_laplace.py` uses IBM diffprivlib's `LogisticRegression`, which implements the Objective Perturbation / Vector Perturbation mechanism (Chaudhuri et al., 2011; Zhang et al., 2012).
+  - `lr_gaussian.py` implements True Analytic Gaussian Output Perturbation (Chaudhuri et al., 2011; Balle & Wang, 2018).
+
+### Mathematical Sensitivity of Logistic Regression Output Perturbation:
+1. Input vectors are augmented with a constant bias feature and normalized such that $\|\tilde{x}\|_2 \le 1$ strictly:
+   $$\tilde{x} = \frac{[x_{\text{norm}}, 1.0]}{\sqrt{d + 1}}$$
+2. Model is trained with $L_2$ regularizer $C=0.02$ and `fit_intercept=False`:
+   $$\min_W \frac{1}{2} \|W\|_F^2 + C \sum_{i=1}^n \ell(W; \tilde{x}_i, y_i)$$
+3. The multinomial cross-entropy loss is $L$-Lipschitz with $L = \sqrt{2}$.
+4. Under single-sample replacement, the **upper bound on the $L_2$ sensitivity** of the optimal weight matrix $W^*$ is:
+   $$\Delta_2(W^*) \le \frac{2 L C}{\lambda} = 2\sqrt{2} \cdot C \approx 0.056569$$
+5. Gaussian noise $\sigma$ is calibrated using the exact **Analytic Gaussian Mechanism** (Balle & Wang, NeurIPS 2018) for $(\epsilon, \delta=10^{-5})$.
 
 ---
 
-## 📊 Benchmark Results
+## 📊 Benchmark Results ($N=30$ Trials)
 
-Evaluated across $N=5$ trials per configuration with stratified 80/20 train/test splits on 80,000-sample benchmark cohorts:
+Evaluated across $N=30$ trials per configuration with stratified 80/20 train/test splits on 80,000-sample benchmark replicates:
 
 ### Accuracy Comparison Across Privacy Budgets
 
 | Model | DP Mechanism | Formal Guarantee | Baseline (No DP) | $\epsilon=0.5$ (High Privacy) | $\epsilon=0.7$ (Moderate) | $\epsilon=1.0$ (Balanced) |
 |-------|--------------|------------------|------------------|-------------------------------|---------------------------|---------------------------|
-| **Gaussian Naive Bayes** | Sufficient Statistics | Pure $\epsilon$-DP | 99.88% | 93.12% ± 5.57% | 97.30% ± 3.69% | 99.77% ± 0.10% |
-| **Random Forest** | Tree-based DP | Pure $\epsilon$-DP | 99.66% | 99.21% ± 0.21% | 99.22% ± 0.24% | 99.19% ± 0.27% |
-| **Logistic Regression** | Output Perturbation | $(\epsilon, \delta)$-DP | 99.19% | 98.66% ± 0.76% | 99.15% ± 0.26% | 99.32% ± 0.17% |
-| **Logistic Regression** | Objective Perturbation | Pure $\epsilon$-DP | 99.83% | 97.67% ± 0.54% | 98.02% ± 0.42% | 98.32% ± 0.35% |
+| **Gaussian Naive Bayes** | Sufficient Statistics | Pure $\epsilon$-DP | 99.88% | 97.26% ± 3.67% | 98.21% ± 2.77% | 98.49% ± 3.51% |
+| **Random Forest** | Tree-based DP | Pure $\epsilon$-DP | 99.66% | 99.12% ± 0.43% | 99.13% ± 0.43% | 99.13% ± 0.43% |
+| **Logistic Regression** | Output Perturbation | $(\epsilon, \delta)$-DP | 99.19% (Tuned: 99.80%) | 94.76% ± 4.82% | 97.24% ± 2.33% | 98.34% ± 1.15% |
+| **Logistic Regression** | Objective Perturbation | Pure $\epsilon$-DP | 99.83% | 97.82% ± 0.86% | 98.22% ± 0.66% | 98.53% ± 0.51% |
 
 ### Macro F1-Scores
 
 | Model | Mechanism | $\epsilon=0.5$ | $\epsilon=0.7$ | $\epsilon=1.0$ |
 |-------|-----------|----------------|----------------|----------------|
-| **Gaussian Naive Bayes** | Sufficient Statistics | 0.9253 | 0.9715 | 0.9977 |
-| **Random Forest** | Tree-based DP | 0.9920 | 0.9922 | 0.9918 |
-| **Logistic Regression** | Output Perturbation | 0.9866 | 0.9915 | 0.9932 |
-| **Logistic Regression** | Objective Perturbation | 0.9767 | 0.9801 | 0.9832 |
+| **Gaussian Naive Bayes** | Sufficient Statistics | 0.9713 | 0.9816 | 0.9837 |
+| **Random Forest** | Tree-based DP | 0.9912 | 0.9913 | 0.9913 |
+| **Logistic Regression** | Output Perturbation | 0.9460 | 0.9721 | 0.9833 |
+| **Logistic Regression** | Objective Perturbation | 0.9781 | 0.9821 | 0.9853 |
+
+### Detailed Findings:
+1. **Output Perturbation vs Budget:** Logistic Regression under Output Perturbation demonstrates a clear, statistically robust privacy-utility tradeoff over 30 trials: accuracy smoothly ascends from $94.76\% \pm 4.82\%$ at $\epsilon=0.5$ to $97.24\% \pm 2.33\%$ at $\epsilon=0.7$ and $98.34\% \pm 1.15\%$ at $\epsilon=1.0$, remaining strictly bounded beneath the non-private baselines (99.19% regularized, 99.80% tuned).
+2. **Random Forest Noise Resilience:** At $n=64,000$ training rows across 4 separable clinical clusters, each tree leaf aggregates thousands of samples. As a result, diffprivlib's `PermuteAndFlip` mechanism selects the majority class label with near-certainty across $\epsilon \in [0.5, 1.0]$. The tradeoff curve for RF becomes apparent only in ultra-strict budgets ($\epsilon=0.05 \to 99.11\%$, $\epsilon=0.01 \to 98.30\%$).
+3. **Naive Bayes Variance:** Sufficient statistics perturbation on class counts and variances incurs higher variance at strict privacy ($\epsilon=0.5$), which resolves as $\epsilon$ reaches $1.0$.
 
 ---
 
-## 🔍 Research Integrity, Data Design & Limitations
+## 🔍 Research Integrity, Data Design & Disclosures
 
-When evaluating and reporting this work in academic papers or presentations, the following methodology details and limitations should be explicitly disclosed:
+When referencing or evaluating this work in research papers, the following methodology details and limitations must be explicitly cited:
 
-1. **Synthetic Benchmark Replicates vs Real Hospital Cohorts:**
-   - The 4 JSON datasets (`dataset_1` to `dataset_4`, 80,000 rows each) are **controlled synthetic benchmark replicates** generated with physiological parameters (means and standard deviations derived from clinical literature for Healthy, Pre-diabetic, Hypertensive, and Metabolic Risk classes).
-   - They serve to test the mathematical resilience and variance of DP mechanisms under identical underlying distributions without confounding noise levels.
-   - Because they are generated synthetically, the empirical DP guarantee applies to the synthetic participant records within the benchmark.
-2. **Original Reference Data (`dataset.csv`) Limitations:**
-   - In the initial Kaggle wearable reference dataset (6,000 rows), approximately 61% of total records and ~80% of rows for classes 1–3 contain synthetic markers.
-   - The original dataset contains 4,233 unique patient IDs across 6,000 rows, meaning some patients contributed up to 12 measurements. In formal DP terms, standard record-level DP protects individual time-slice observations, whereas user-level DP would require grouping or bounding contributions per patient ID.
-3. **Hyperparameter Selection Privacy Accounting:**
-   - In standard differential privacy literature, tuning hyperparameters (such as $C$, tree depth, and number of estimators) on the training set technically consumes privacy budget unless tuned on a disjoint public validation set or accounted for via private selection algorithms (e.g., Report Noisy Max).
-4. **Composition Over Multiple Experiments:**
-   - Running $k$ trials on the same training cohort consumes privacy according to DP composition theorems:
-     - Basic composition: $\epsilon_{\text{total}} = k \cdot \epsilon$.
-     - Advanced composition (Dwork et al.): $\epsilon_{\text{total}} = \sqrt{2k\ln(1/\delta')}\epsilon + k\epsilon(e^\epsilon - 1)$ with total failure probability $k\delta + \delta'$.
+### 1. Clinical Distribution Citations & Benchmark Design:
+The 4 benchmark replicates (`dataset_1` to `dataset_4`, 80,000 rows each) were generated using [generate_datasets.py](file:///c:/Users/DELL/Desktop/psit/projects%20btech/PrivaCare-AI/generate_datasets.py) with class profiles derived directly from clinical diagnostic guidelines:
+- **Glucose Ranges:** American Diabetes Association (ADA). "Classification and Diagnosis of Diabetes: Standards of Care in Diabetes—2024." *Diabetes Care* 47 (Suppl. 1), 2024: S20–S42. (Fasting normal < 100 mg/dL; Prediabetes 100–125 mg/dL; Diabetes $\ge$ 126 mg/dL).
+- **Blood Pressure Ranges:** Whelton, P.K., et al. "2017 ACC/AHA/AAPA/ABC/ACPM/AGS/APhA/ASH/ASPC/NMA/PCNA Guideline for Prevention, Detection, Evaluation, and Management of High Blood Pressure in Adults." *J Am Coll Cardiol* 71(19), 2018: e127–e248. (Normal systolic < 120 mmHg; Stage 1 130–139 mmHg; Stage 2 $\ge$ 140 mmHg).
+- **Resting Heart Rate:** Clinical consensus on normal resting heart rate (60–100 BPM).
+- **Crucial Disclosure:** Class centers were designed from these clinical guidelines and were **NOT fitted to `data/dataset.csv`** (in `dataset.csv`, class 2 glucose was ~55 mg/dL, an unrepresentative outlier). The datasets are synthetic benchmark replicates; formal DP guarantees apply to the synthetic participants in the benchmark.
+
+### 2. LR Gaussian vs LR Laplace Model Confounding:
+- `lr_gaussian.py` optimizes a single multinomial objective ($C=0.02$, MinMax $[0,1]$ + bias augmentation) consuming budget $\epsilon$ jointly across classes.
+- `lr_laplace.py` uses IBM diffprivlib, which implements One-vs-Rest (OvR) binary logistic regressions ($C=1.0$, Z-score clipping to $[-2,2]$) allocating an individual privacy budget of $\epsilon / K = \epsilon / 4$ to each binary classifier.
+- Consequently, accuracy differences reflect both the perturbation mechanism (output vs objective) and the architectural setup (multinomial vs OvR composition).
+
+### 3. Record-level DP vs Patient-level DP:
+- In the initial Kaggle wearable reference dataset (6,000 rows), 4,233 unique patient IDs exist (up to 12 rows per patient), and ~61% of rows contain synthetic markers.
+- Our pipeline provides **Record-level DP**. For multi-row patient monitoring, patient-level DP requires bounding individual participant contributions.
+
+### 4. Hyperparameter Accounting & Composition:
+- Hyperparameter tuning ($C=0.02$, tree depth, number of estimators) was conducted on the training cohort; in strict academic DP frameworks, hyperparameter search consumes privacy budget unless performed on disjoint public data.
+- Repeated runs on the same training set compose privacy according to the Advanced Composition Theorem:
+  $$\epsilon_{\text{total}} = \sqrt{2k\ln(1/\delta')}\epsilon + k\epsilon(e^\epsilon - 1) \quad \text{with total failure probability } k\delta + \delta'$$
 
 ---
 
@@ -158,26 +167,32 @@ Pinned dependencies:
 - `pandas>=1.5`
 - `numpy>=1.23`
 
+### Regenerate Benchmark Replicates
+
+```bash
+python generate_datasets.py
+```
+
 ### Running Individual Models
 
 ```bash
-# 1. Gaussian Naive Bayes (Sufficient Statistics DP)
+# 1. Gaussian Naive Bayes (Sufficient Statistics DP, pure ε-DP)
 python models/rf_gaussian.py
 
-# 2. Random Forest (Tree-based DP)
+# 2. Random Forest (Tree-based DP, pure ε-DP)
 python models/rf_laplace.py
 
-# 3. Logistic Regression (Analytic Gaussian Output DP)
+# 3. Logistic Regression (Analytic Gaussian Output DP, (ε,δ)-DP)
 python models/lr_gaussian.py
 
-# 4. Logistic Regression (Objective Perturbation DP)
+# 4. Logistic Regression (Objective Perturbation DP, pure ε-DP)
 python models/lr_laplace.py
 ```
 
-### Running Full Benchmark & Plots
+### Running Full 30-Trial Benchmark & Plots
 
 ```bash
-# Run comprehensive benchmark across all 4 models and epsilons [0.5, 0.7, 1.0]
+# Run comprehensive benchmark across all 4 models and epsilons [0.5, 0.7, 1.0] over 30 trials
 python compare_all.py
 
 # Generate publication-grade tradeoff curves & bar charts

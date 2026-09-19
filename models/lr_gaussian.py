@@ -45,7 +45,7 @@ warnings.filterwarnings("once")
 # ===========================================================================
 DATASET_PATH = "datasets/dataset_3_lr_gaussian.json"   # ONLY this dataset
 DELTA        = 1e-5
-N_TRIALS     = 10
+N_TRIALS     = 30
 BASE_SEED    = 42
 C_REG        = 0.02   # Inverse regularization parameter for L2-regularized ERM
 
@@ -168,7 +168,7 @@ except ValueError:
 #  4. OUTPUT PERTURBATION SENSITIVITY (Chaudhuri et al., 2011)
 #  Loss Lipschitz constant L = sqrt(2)
 #  Objective: (1/2)||W||_F^2 + C * sum_i ell(W; x_i, y_i)
-#  Sensitivity Delta_2 = 2 * L * C = 2 * sqrt(2) * C
+#  Upper Bound Sensitivity Delta_2 <= 2 * L * C = 2 * sqrt(2) * C
 # ===========================================================================
 n_train        = X_train.shape[0]
 l2_sensitivity = 2.0 * math.sqrt(2) * C_REG
@@ -182,7 +182,7 @@ print(f"      Delta   (d)               = {DELTA}")
 print(f"      n_train                   = {n_train:,}")
 print(f"      K (classes)               = {n_classes}")
 print(f"      C_reg                     = {C_REG}")
-print(f"      L2 Sensitivity (2*sqrt(2)*C)= {l2_sensitivity:.6f}")
+print(f"      L2 Sensitivity Bound (2*sqrt(2)*C)= {l2_sensitivity:.6f}")
 print(f"      Sigma (Analytic GM)       = {sigma:.6f}  [noise std added to weights]")
 print(f"      Trials                    = {N_TRIALS} runs")
 print(f"\n  [!] COMPOSITION NOTE:")
@@ -191,9 +191,15 @@ print(f"        Basic Composition: e_total = {total_epsilon_basic:.2f}, delta_to
 print(f"  " + "-"*58 + "\n")
 
 # ===========================================================================
-#  5. BASELINE LR — No Privacy (fit_intercept=False on augmented X)
+#  5. BASELINES (Tuned Non-Private vs Regularized C=0.02)
 # ===========================================================================
-print(f"[1] Training Baseline Logistic Regression (No DP)...")
+print(f"[1] Training Non-Private Baselines...")
+# Tuned non-private baseline (unconstrained C=1.0)
+lr_tuned = LogisticRegression(C=1.0, max_iter=1000, multi_class='multinomial', random_state=BASE_SEED)
+lr_tuned.fit(X_train_raw, y_train)
+acc_tuned_base = accuracy_score(y_test, lr_tuned.predict(X_test_raw))
+
+# Regularized baseline (C=0.02, fit_intercept=False on augmented data)
 lr_baseline = LogisticRegression(
     C=C_REG, fit_intercept=False, max_iter=1000, multi_class='multinomial', random_state=BASE_SEED
 )
@@ -202,9 +208,9 @@ y_base_pred  = lr_baseline.predict(X_test)
 acc_baseline = accuracy_score(y_test, y_base_pred)
 f1_baseline  = f1_score(y_test, y_base_pred, average="macro")
 rec_baseline = recall_score(y_test, y_base_pred, average="macro")
-print(f"    Baseline Accuracy : {acc_baseline * 100:.2f}%")
-print(f"    Baseline F1 Score : {f1_baseline:.4f}")
-print(f"    Baseline Recall   : {rec_baseline:.4f}\n")
+
+print(f"    Tuned Baseline (C=1.0, unconstrained) : {acc_tuned_base * 100:.2f}%")
+print(f"    Regularized Baseline (C={C_REG})       : {acc_baseline * 100:.2f}% (F1={f1_baseline:.4f})\n")
 
 # ===========================================================================
 #  6. DP LR — OUTPUT PERTURBATION (Gaussian Mechanism)
