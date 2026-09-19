@@ -1,22 +1,20 @@
 """
 PrivaCare-AI - models/lr_laplace.py
 Model    : Logistic Regression
-Mechanism: Laplace Mechanism (Dwork & Roth, 2014)
+Mechanism: Objective Perturbation — Laplace (pure epsilon-DP)
 Guarantee: Pure epsilon-DP  (NO delta needed)
 
-DP Approach:
-  - Features normalized to [0,1] via data-independent DOMAIN_BOUNDS
-  - sklearn LogisticRegression replaced with diffprivlib's DPLogisticRegression
-  - Mechanism: Objective Perturbation (Gradient Perturbation via Laplace)
-  - Guarantee: pure epsilon-DP
-  - Test features stay CLEAN (standard DP-ML practice)
-  - Guarantee: pure epsilon-DP
+DP Approach (Objective Perturbation — Chaudhuri et al., 2011):
+  - Uses diffprivlib DPLogisticRegression
+  - Perturbs the objective function (loss + noise) during training
+  - data_norm = max L2 norm of a normalized input sample
+  - Z-score normalization: features clipped to [-2, 2]
+    -> For k=4 features: max L2 = sqrt(k * 2^2) = 2*sqrt(4) = 4.0
+  - Guarantee: pure epsilon-DP (exact, no delta approximation)
 
-Compared to lr_gaussian.py:
-  - Gaussian: (epsilon, delta)-DP  -- approximate DP, needs delta
-  - Laplace:  pure epsilon-DP      -- exact DP, no delta needed
-
-Reference: Dwork & Roth (2014), Algorithmic Foundations of DP, Chap 3
+Dataset  : datasets/dataset_4_lr_laplace.json  (ONLY this file — no other dataset)
+Reference: Chaudhuri, Monteleoni & Sarwate (2011) "Differentially Private Empirical Risk Minimization"
+           diffprivlib: Holohan et al. (2019), IBM
 """
 
 import math
@@ -40,127 +38,78 @@ warnings.filterwarnings("once")
 # ===========================================================================
 #  CONFIGURATION
 # ===========================================================================
+DATASET_PATH = "datasets/dataset_4_lr_laplace.json"   # ONLY this dataset
 N_TRIALS     = 3
 BASE_SEED    = 42
-STRICT_DOMAIN_BOUNDS = True
 
 # ===========================================================================
-#  DATA-INDEPENDENT FEATURE BOUNDS
+#  DATA-INDEPENDENT FEATURE BOUNDS (for Z-score normalization)
 # ===========================================================================
-DOMAIN_BOUNDS = {
-    "heart_rate":               (30,    220),
-    "blood_oxygen":             (70.0, 100.0),
-    "blood_pressure_systolic":  (60,    250),
-    "blood_pressure_diastolic": (40,    150),
-    "glucose_level":            (30.0,  300.0),
-    "body_temperature":         (94.0,  107.0),
-    "respiratory_rate":         (8,     40),
-    "activity_level":           (0.0,   1.0),
-    "sleep_quality":            (0.0,   1.0),
-    "stress_level":             (0.0,   1.0),
-    "hrv_sdnn":                 (5.0,  200.0),
-    "steps_count":              (0,    15000),
-    "calories_burned":          (0,     5000),
-    "age":                      (0,     120),
-    "gender":                   (0,     1),
-}
-
-BINARY_FEATURES = {"gender"}
-GENDER_MAP = {"male": 1, "m": 1, "female": 0, "f": 0, "woman": 0, "man": 1}
-
-
-# ===========================================================================
-#  DATA-INDEPENDENT NORMALIZATION (Z-SCORE)
-# ===========================================================================
-# Trick for high-accuracy DP LR: MinMax scaling pushes all data to positive
-# values which degrades LR gradients. Zero-centered Z-score is much better.
-# We compute mean and std from DOMAIN_BOUNDS to remain strictly DP compliant.
-def normalize_with_domain_bounds(X, feature_names, fallback_bounds=None):
-    X_norm = X.copy().astype(float)
-    computed_fallbacks = {}
-    for i, col in enumerate(feature_names):
-        if col in DOMAIN_BOUNDS:
-            lo, hi = DOMAIN_BOUNDS[col]
-        elif fallback_bounds and col in fallback_bounds:
-            lo, hi = fallback_bounds[col]
-        else:
-            if STRICT_DOMAIN_BOUNDS:
-                raise ValueError(
-                    f"\n  [DP ERROR] Feature '{col}' not in DOMAIN_BOUNDS.\n"
-                    f"  Add '{col}' to DOMAIN_BOUNDS dict."
-                )
-            lo, hi = float(X[:, i].min()), float(X[:, i].max())
-            computed_fallbacks[col] = (lo, hi)
-            print(f"  WARNING: No domain bound for '{col}' -- using train min/max.")
-        
-        # Data-independent Z-score
-        expected_mu  = (lo + hi) / 2.0
-        expected_std = (hi - lo) / 4.0 if (hi - lo) > 0 else 1.0
-        
-        X_norm[:, i] = (X_norm[:, i] - expected_mu) / expected_std
-        X_norm[:, i] = np.clip(X_norm[:, i], -2.0, 2.0)  # Bound sensitivity
-        
-    return X_norm, computed_fallbacks
-
-
-# ===========================================================================
-#  LAPLACE NOISE INJECTION (DIFFPRIVLIB)
-# ===========================================================================
-# The manual add_laplace_dp_noise function has been removed.
-# We now use diffprivlib's DPLogisticRegression (Objective Perturbation),
-# which guarantees pure epsilon-DP natively without destroying input data.
-
-
-# ===========================================================================
-#  1. LOAD DATA
-# ===========================================================================
-csv_path = "datasets/dataset_4_lr_laplace.json"
-df = pd.read_json(csv_path)
-
-if "health_event" in df.columns:
-    target_col = "health_event"
-elif "disease" in df.columns:
-    target_col = "disease"
-else:
-    target_col = df.columns[-1]
-
-if "gender" in df.columns and df["gender"].dtype == object:
-    def encode_gender(val):
-        v = str(val).strip().lower()
-        if v not in GENDER_MAP:
-            raise ValueError(f"Unknown gender value: '{val}'. Expected: {list(GENDER_MAP.keys())}")
-        return GENDER_MAP[v]
-    df["gender"] = df["gender"].apply(encode_gender)
-
-# MIDDLE GROUND FIX (k=4): 
-# 8 features created too much noise (wiping out Class 2).
-# 1 feature created too little noise (100% overfitting).
-# By picking exactly 4 features (2 signal + 2 natural), we balance the L2 sensitivity
-# to keep accuracy realistic (~80-85%) and prevent Class 2 from being destroyed.
-feature_cols = [
-    "glucose_level",           # Strong signal
-    "stress_level",            # Secondary signal
-    "heart_rate",              # Natural variance / Regularization
-    "blood_pressure_systolic"  # Natural variance / Regularization
+FEATURE_COLS = [
+    "glucose_level",            # [30, 300]
+    "stress_level",             # [0, 1]
+    "heart_rate",               # [30, 220]
+    "blood_pressure_systolic",  # [60, 250]
+]
+DOMAIN_BOUNDS = [
+    (30.0, 300.0),   # glucose_level
+    (0.0,  1.0),     # stress_level
+    (30,   220),     # heart_rate
+    (60,   250),     # blood_pressure_systolic
 ]
 
-X  = df[feature_cols].values.astype(float)
+GENDER_MAP = {"male": 1, "m": 1, "female": 0, "f": 0, "woman": 0, "man": 1}
+
+# ===========================================================================
+#  DATA-INDEPENDENT Z-SCORE NORMALIZATION
+#  Mean and std derived from DOMAIN_BOUNDS (not from data) -> DP compliant
+#  Features are clipped to [-2, 2] -> max L2 per sample = 2*sqrt(k) = 4.0
+# ===========================================================================
+def normalize_features(X):
+    X_norm = X.copy().astype(float)
+    for i, (lo, hi) in enumerate(DOMAIN_BOUNDS):
+        expected_mu  = (lo + hi) / 2.0
+        expected_std = (hi - lo) / 4.0 if (hi - lo) > 0 else 1.0
+        X_norm[:, i] = (X_norm[:, i] - expected_mu) / expected_std
+        X_norm[:, i] = np.clip(X_norm[:, i], -2.0, 2.0)
+    return X_norm
+
+# data_norm = max L2 norm of a normalized input sample
+# For k=4 features in [-2, 2]: max L2 = sqrt(4 * 2^2) = sqrt(16) = 4.0
+DATA_NORM = 2.0 * math.sqrt(len(FEATURE_COLS))   # = 4.0
+
+
+# ===========================================================================
+#  1. LOAD DATA — ONLY dataset_4_lr_laplace.json
+# ===========================================================================
+df = pd.read_json(DATASET_PATH)
+
+# Encode gender if present
+if "gender" in df.columns and df["gender"].dtype == object:
+    df["gender"] = df["gender"].str.strip().str.lower().map(GENDER_MAP).fillna(0).astype(int)
+
+target_col = "health_event"
+X  = df[FEATURE_COLS].values.astype(float)
 le = LabelEncoder()
 y  = le.fit_transform(df[target_col].values)
-n_features = len(feature_cols)
+
+n_features = len(FEATURE_COLS)
+n_classes  = len(le.classes_)
+n_total    = len(X)
 
 print(f"\n{'='*60}")
 print(f"  PrivaCare-AI -- Laplace Mechanism DP Training")
 print(f"  Model    : Logistic Regression")
-print(f"  Mechanism: Laplace (pure epsilon-DP, no delta)")
+print(f"  Mechanism: Objective Perturbation (pure epsilon-DP)")
+print(f"  Dataset  : {DATASET_PATH}")
 print(f"{'='*60}")
-print(f"\n  Dataset : {X.shape[0]:,} rows | {n_features} features")
-print(f"  Target  : '{target_col}' | {len(np.unique(y))} classes")
-print(f"  Features: {feature_cols}\n")
+print(f"\n  Dataset : {n_total:,} rows | {n_features} features")
+print(f"  Target  : '{target_col}' | {n_classes} classes")
+print(f"  Features: {FEATURE_COLS}\n")
 
 print("  +--[ PRIVACY SCOPE NOTE ]" + "-"*35 + "+")
 print(f"  | Target label ('{target_col}') is NOT DP-protected.              |")
-print("  | Standard DP-ML design (Abadi et al. 2016 DP-SGD).          |")
+print("  | Standard DP-ML design (Chaudhuri et al., 2011).            |")
 print("  | Privacy = what the *model* reveals about training records.  |")
 print("  +" + "-"*59 + "+\n")
 
@@ -172,20 +121,18 @@ X_train, X_test, y_train, y_test = train_test_split(
 )
 
 # ===========================================================================
-#  3. NORMALIZATION
+#  3. DATA-INDEPENDENT Z-SCORE NORMALIZATION
 # ===========================================================================
-X_train_norm, fallback_bounds = normalize_with_domain_bounds(X_train, feature_cols)
-X_test_norm, _                = normalize_with_domain_bounds(
-    X_test, feature_cols, fallback_bounds=fallback_bounds
-)
+X_train_norm = normalize_features(X_train)
+X_test_norm  = normalize_features(X_test)
 
 # ===========================================================================
 #  4. EPSILON INPUT
 # ===========================================================================
 print("  " + "="*58)
 print("  GOLDEN RULE:")
-print("  e (epsilon) badhao  -->  privacy KAM,  accuracy ZYADA")
-print("  e (epsilon) ghatao  -->  privacy ZYADA, accuracy KAM")
+print("  e (epsilon) badhao  --> privacy KAM,  accuracy ZYADA")
+print("  e (epsilon) ghatao  --> privacy ZYADA, accuracy KAM")
 print("  " + "-"*58)
 print("  Recommended ranges:")
 print("    e <= 0.5   -->  High Privacy   (medical / sensitive data)")
@@ -199,30 +146,26 @@ try:
 except ValueError:
     epsilon = 0.5
 
-# Calculate correct L2 sensitivity for Z-scored Data [-2, 2]
-continuous_features = [c for c in feature_cols if c not in BINARY_FEATURES]
-k = len(continuous_features)
-# Max theoretical L2 norm for k features clipped at [-2, 2] is sqrt(k * 2^2) = 2 * sqrt(k)
-l2_sensitivity = 2.0 * math.sqrt(k)
-
 total_epsilon_basic = N_TRIALS * epsilon
 
 print(f"\n  --> Epsilon (e, per run)    = {epsilon}")
-print(f"      data_norm (L2)          = {l2_sensitivity:.4f}  << ACTUALLY USED for DP LR")
+print(f"      n_train                 = {X_train_norm.shape[0]:,}")
+print(f"      K (classes)             = {n_classes}")
+print(f"      data_norm (L2 bound)    = {DATA_NORM:.4f}  (2 * sqrt(k) for Z-score [-2,2])")
 print(f"      Mechanism               : Objective Perturbation (pure epsilon-DP)")
 print(f"      NO delta needed         : Exact DP guarantee")
 print(f"      Trials                  = {N_TRIALS} runs")
 print(f"\n  [!] COMPOSITION WARNING:")
-print(f"      {N_TRIALS} trials on same data -> TOTAL consumed:")
+print(f"      {N_TRIALS} trials on same data --> TOTAL consumed:")
 print(f"        Basic composition    : e_total = {total_epsilon_basic:.4f}  (= {N_TRIALS} x {epsilon})")
-print(f"        (Advanced composition not applicable for pure DP without adding delta)")
+print(f"        (Advanced composition not applicable for pure epsilon-DP)")
 print(f"  " + "-"*58 + "\n")
 
 # ===========================================================================
-#  5. BASELINE LR — No Privacy
+#  5. BASELINE LR — No Privacy (for comparison)
 # ===========================================================================
 print(f"[1] Training Baseline Logistic Regression (No DP)...")
-lr_baseline = LogisticRegression(max_iter=1000, random_state=BASE_SEED)
+lr_baseline = LogisticRegression(C=1.0, max_iter=1000, multi_class='multinomial', random_state=BASE_SEED)
 lr_baseline.fit(X_train_norm, y_train)
 y_base_pred  = lr_baseline.predict(X_test_norm)
 acc_baseline = accuracy_score(y_test, y_base_pred)
@@ -233,21 +176,29 @@ print(f"    Baseline F1 Score : {f1_baseline:.4f}")
 print(f"    Baseline Recall   : {rec_baseline:.4f}\n")
 
 # ===========================================================================
-#  6. DP LR — LAPLACE MECHANISM, MULTIPLE TRIALS
+#  6. DP LR — OBJECTIVE PERTURBATION (Laplace / pure epsilon-DP)
+#
+#  Algorithm (diffprivlib DPLogisticRegression):
+#    1. Add calibrated noise to the objective function gradient
+#    2. Minimize noisy objective -> DP weight vector
+#    3. Guarantee: pure epsilon-DP (Chaudhuri et al., 2011)
+#    4. Test on clean X_test (post-processing, DP preserved)
 # ===========================================================================
-print(f"[2] Training DP LR with Diffprivlib Objective Perturbation ({N_TRIALS} trials | e={epsilon})...")
-print(f"    Using DPLogisticRegression | data_norm={l2_sensitivity:.4f} | pure epsilon-DP\n")
+print(f"[2] Training DP LR with Objective Perturbation ({N_TRIALS} trials | e={epsilon})...")
+print(f"    Using diffprivlib DPLogisticRegression | data_norm={DATA_NORM:.4f} | pure epsilon-DP\n")
 
-trial_accs = []
-trial_f1s  = []
-trial_recs = []
+trial_accs, trial_f1s, trial_recs = [], [], []
 lr_dp = None
 
 for trial in range(N_TRIALS):
     seed = BASE_SEED + trial
-    rng  = np.random.RandomState(seed)
 
-    lr_dp = DPLogisticRegression(epsilon=epsilon, data_norm=l2_sensitivity, random_state=seed)
+    lr_dp = DPLogisticRegression(
+        epsilon=epsilon,
+        data_norm=DATA_NORM,
+        max_iter=1000,
+        random_state=seed
+    )
     lr_dp.fit(X_train_norm, y_train)
     y_pred_t = lr_dp.predict(X_test_norm)
 
@@ -265,11 +216,8 @@ acc_std = float(np.std(trial_accs))
 f1_dp   = float(np.mean(trial_f1s))
 rec_dp  = float(np.mean(trial_recs))
 
-y_pred       = lr_dp.predict(X_test_norm)
-y_pred_proba = lr_dp.predict_proba(X_test_norm)
-
-class_names = [str(c) for c in le.classes_]
-report = classification_report(y_test, y_pred, target_names=class_names)
+y_pred = lr_dp.predict(X_test_norm)
+report = classification_report(y_test, y_pred, target_names=[str(c) for c in le.classes_])
 
 # ===========================================================================
 #  7. RESULT SUMMARY
@@ -285,14 +233,14 @@ print(f"  DP Accuracy ({N_TRIALS} trials, e={epsilon})          : {acc_dp * 100:
 print(f"  DP Macro F1 Score                      : {f1_dp:.4f}")
 print(f"  DP Macro Recall                        : {rec_dp:.4f}")
 print(f"  Accuracy Drop (Privacy Cost)           : {(acc_baseline - acc_dp) * 100:.2f}%")
-print(f"  data_norm (L2)                         : {l2_sensitivity:.4f}")
-print(f"  Normalization                          : Domain-bound clipping (data-independent)")
+print(f"  data_norm (L2 bound)                   : {DATA_NORM:.4f}")
+print(f"  Mechanism                              : Objective Perturbation (Chaudhuri et al., 2011)")
 print(f"  " + "-"*58)
 print(f"  PRIVACY BUDGET ACCOUNTING:")
-print(f"    Mechanism                : Objective Perturbation (pure epsilon-DP)")
+print(f"    Mechanism                : Objective Perturbation (diffprivlib)")
 print(f"    Per-run guarantee        : pure {epsilon}-DP  (NO delta needed)")
 print(f"    Total consumed (basic)   : {total_epsilon_basic:.4f}-DP  <-- {N_TRIALS} runs x e={epsilon}")
-print(f"    (Advanced composition not applicable for pure DP)")
+print(f"    (Advanced composition not applicable for pure epsilon-DP)")
 print(f"  " + "-"*58)
 print(f"\n  PER-CLASS REPORT (last trial):\n")
 print(report)
