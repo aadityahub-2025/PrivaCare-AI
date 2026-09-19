@@ -37,6 +37,7 @@ from sklearn.metrics import (
 )
 import joblib
 import os
+import sys
 import warnings
 warnings.filterwarnings("once")
 
@@ -158,11 +159,18 @@ print("    e  = 1.0   -->  Balanced       (research)")
 print("    e >= 3.0   -->  High Accuracy  (less sensitive data)")
 print("  " + "="*58)
 
-try:
-    user_input = input("  Enter Epsilon value (e.g. 0.1, 0.5, 1.0) [Default 0.5]: ").strip()
-    epsilon = float(user_input) if user_input else 0.5
-except ValueError:
-    epsilon = 0.5
+if len(sys.argv) > 1:
+    try:
+        epsilon = float(sys.argv[1])
+    except ValueError:
+        epsilon = 0.5
+else:
+    try:
+        user_input = input("  Enter Epsilon value (e.g. 0.1, 0.5, 1.0) [Default 0.5]: ").strip()
+        epsilon = float(user_input) if user_input else 0.5
+    except (ValueError, EOFError):
+        epsilon = 0.5
+
 
 # ===========================================================================
 #  4. OUTPUT PERTURBATION SENSITIVITY (Chaudhuri et al., 2011)
