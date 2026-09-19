@@ -5,10 +5,9 @@ Mechanism: Tree-based DP — Laplace (pure epsilon-DP)
 Guarantee: Pure epsilon-DP  (NO delta needed)
 
 DP Approach (Tree-based DP — diffprivlib RandomForestClassifier):
-  - Each tree is built using DP-compatible split selection
-  - Exponential Mechanism selects features/split points privately
-  - Laplace noise is added to leaf class counts before prediction
-  - Guarantee: pure epsilon-DP (exact, no delta approximation)
+  - Each decision tree is constructed via random splitting criterion over domain bounds
+  - The PermuteAndFlip mechanism is applied to determine noisy leaf node labels
+  - Guarantee: Pure epsilon-DP (exact, no delta approximation needed)
 
 Why better than naive Laplace Input Perturbation:
   - Input Perturbation on 13 features: Laplace scale b = 13/0.5 = 26 -> destroys signal

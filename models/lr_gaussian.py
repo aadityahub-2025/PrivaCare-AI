@@ -4,16 +4,21 @@ Model    : Logistic Regression
 Mechanism: Analytic Gaussian Mechanism — Output Perturbation
 Guarantee: (epsilon, delta)-DP
 
-DP Approach (Output Perturbation — Chaudhuri & Monteleoni, 2008):
-  - Train standard L2-regularized Logistic Regression on clean data
-  - Add calibrated Gaussian noise to trained weight vector w*
-  - Sensitivity of w* for L2-reg LR: Delta_2 = (2 * C / n) * sqrt(K)
-    where C = regularization param (1/lambda), n = train size, K = classes
-  - sigma calibrated via Analytic Gaussian Mechanism (Balle & Wang, 2018)
-  - Guarantee: (epsilon, delta)-DP
+DP Approach (Output Perturbation — Chaudhuri et al., 2011; Rubinstein et al., 2012):
+  - Augment features with constant bias feature: x_aug = [x_norm, 1.0] / sqrt(d + 1)
+    ensuring ||x||_2 <= 1 strictly across all samples.
+  - Train L2-regularized Logistic Regression with fit_intercept=False on clean data:
+      min_W  (1/2) * ||W||_F^2 + C * sum_i ell(W; x_i, y_i)
+  - Loss ell is L-Lipschitz with L = sqrt(2) for multinomial cross-entropy.
+  - Objective is strongly convex with lambda = 1.
+  - Sensitivity of W* under single-sample replacement:
+      Delta_2 = 2 * L * C / lambda = 2 * sqrt(2) * C
+  - Gaussian noise N(0, sigma^2) added to W* calibrated via Analytic Gaussian Mechanism
+    (Balle & Wang, 2018).
+  - Guarantee: (epsilon, delta)-DP holds for both feature weights and intercept.
 
-Dataset  : datasets/dataset_3_lr_gaussian.json  (ONLY this file — no other dataset)
-Reference: Chaudhuri & Monteleoni (2008) "Privacy-preserving logistic regression"
+Dataset  : datasets/dataset_3_lr_gaussian.json (ONLY this file)
+Reference: Chaudhuri, Monteleoni, Sarwate (JMLR 2011) "Differentially Private ERM"
            Balle & Wang (NeurIPS 2018) "Improving the Gaussian Mechanism for DP"
 """
 
@@ -40,9 +45,9 @@ warnings.filterwarnings("once")
 # ===========================================================================
 DATASET_PATH = "datasets/dataset_3_lr_gaussian.json"   # ONLY this dataset
 DELTA        = 1e-5
-N_TRIALS     = 3
+N_TRIALS     = 10
 BASE_SEED    = 42
-C_REG        = 1.0    # L2 regularization strength (lambda = 1/C_REG)
+C_REG        = 0.02   # Inverse regularization parameter for L2-regularized ERM
 
 # ===========================================================================
 #  DATA-INDEPENDENT FEATURE BOUNDS (for [0,1] normalization)
@@ -65,7 +70,6 @@ GENDER_MAP = {"male": 1, "m": 1, "female": 0, "f": 0, "woman": 0, "man": 1}
 
 # ===========================================================================
 #  ANALYTIC GAUSSIAN SIGMA (Balle & Wang, 2018)
-#  Finds the minimum sigma such that the mechanism is (epsilon, delta)-DP
 # ===========================================================================
 def analytic_gaussian_sigma(epsilon, delta, sensitivity=1.0):
     def phi(t):
@@ -85,15 +89,22 @@ def analytic_gaussian_sigma(epsilon, delta, sensitivity=1.0):
 
 
 # ===========================================================================
-#  DATA-INDEPENDENT NORMALIZATION — MinMax to [0, 1]
-#  Uses fixed DOMAIN_BOUNDS so normalization is data-independent (DP-safe)
+#  DATA-INDEPENDENT NORMALIZATION & BIAS AUGMENTATION (||x||_2 <= 1)
 # ===========================================================================
-def normalize_features(X):
+def normalize_and_augment(X):
+    """
+    MinMax scale to [0, 1] using fixed domain bounds, append constant 1.0 bias feature,
+    and scale by 1 / sqrt(d + 1) so that ||x||_2 <= 1 strictly holds.
+    """
     X_norm = X.copy().astype(float)
     for i, (lo, hi) in enumerate(DOMAIN_BOUNDS):
         X_norm[:, i] = np.clip(X_norm[:, i], lo, hi)
         X_norm[:, i] = (X_norm[:, i] - lo) / (hi - lo + 1e-12)
-    return X_norm
+    
+    d = X_norm.shape[1]
+    # Append constant bias column 1.0 and scale so Euclidean norm is <= 1
+    X_aug = np.hstack([X_norm, np.ones((X_norm.shape[0], 1))]) / math.sqrt(d + 1)
+    return X_aug
 
 
 # ===========================================================================
@@ -101,11 +112,9 @@ def normalize_features(X):
 # ===========================================================================
 df = pd.read_json(DATASET_PATH)
 
-# Encode gender if present
 if "gender" in df.columns and df["gender"].dtype == object:
     df["gender"] = df["gender"].str.strip().str.lower().map(GENDER_MAP).fillna(0).astype(int)
 
-# Target column
 target_col = "health_event"
 X  = df[FEATURE_COLS].values.astype(float)
 le = LabelEncoder()
@@ -125,27 +134,18 @@ print(f"\n  Dataset : {n_total:,} rows | {n_features} features")
 print(f"  Target  : '{target_col}' | {n_classes} classes")
 print(f"  Features: {FEATURE_COLS}\n")
 
-print("  +--[ PRIVACY SCOPE NOTE ]" + "-"*35 + "+")
-print(f"  | Target label ('{target_col}') is NOT DP-protected.              |")
-print("  | Standard DP-ML design (Chaudhuri & Monteleoni, 2008).      |")
-print("  | Privacy = what the *model weights* reveal about training.   |")
-print("  +" + "-"*59 + "+\n")
-
 # ===========================================================================
-#  2. TRAIN / TEST SPLIT
+#  2. TRAIN / TEST SPLIT & NORMALIZATION
 # ===========================================================================
-X_train, X_test, y_train, y_test = train_test_split(
+X_train_raw, X_test_raw, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=BASE_SEED, stratify=y
 )
 
-# ===========================================================================
-#  3. DATA-INDEPENDENT NORMALIZATION
-# ===========================================================================
-X_train_norm = normalize_features(X_train)
-X_test_norm  = normalize_features(X_test)
+X_train = normalize_and_augment(X_train_raw)
+X_test  = normalize_and_augment(X_test_raw)
 
 # ===========================================================================
-#  4. EPSILON INPUT
+#  3. EPSILON INPUT
 # ===========================================================================
 print("  " + "="*58)
 print("  GOLDEN RULE:")
@@ -165,40 +165,40 @@ except ValueError:
     epsilon = 0.5
 
 # ===========================================================================
-#  OUTPUT PERTURBATION SENSITIVITY
-#  Chaudhuri & Monteleoni (2008):
-#    Sensitivity = (2 * C) / (n * lambda) = 2 * C / n   [for single class]
-#    For K-class multiclass: Delta_2 = (2 * C / n) * sqrt(K)
-#  This is the L2 sensitivity of the optimal weight vector w*
+#  4. OUTPUT PERTURBATION SENSITIVITY (Chaudhuri et al., 2011)
+#  Loss Lipschitz constant L = sqrt(2)
+#  Objective: (1/2)||W||_F^2 + C * sum_i ell(W; x_i, y_i)
+#  Sensitivity Delta_2 = 2 * L * C = 2 * sqrt(2) * C
 # ===========================================================================
-n_train       = X_train_norm.shape[0]
-l2_sensitivity = (2 * C_REG / n_train) * math.sqrt(n_classes)
+n_train        = X_train.shape[0]
+l2_sensitivity = 2.0 * math.sqrt(2) * C_REG
 sigma          = analytic_gaussian_sigma(epsilon, DELTA, sensitivity=l2_sensitivity)
 
-total_epsilon_basic    = N_TRIALS * epsilon
-total_epsilon_advanced = math.sqrt(N_TRIALS) * epsilon
+# Basic composition over N_TRIALS
+total_epsilon_basic = N_TRIALS * epsilon
 
 print(f"\n  --> Epsilon (e, per run)      = {epsilon}")
 print(f"      Delta   (d)               = {DELTA}")
 print(f"      n_train                   = {n_train:,}")
 print(f"      K (classes)               = {n_classes}")
 print(f"      C_reg                     = {C_REG}")
-print(f"      L2 Sensitivity            = 2C/(n*sqrt(K)) = {l2_sensitivity:.8f}")
-print(f"      Sigma (Analytic GM)       = {sigma:.8f}  [noise std added to weights]")
+print(f"      L2 Sensitivity (2*sqrt(2)*C)= {l2_sensitivity:.6f}")
+print(f"      Sigma (Analytic GM)       = {sigma:.6f}  [noise std added to weights]")
 print(f"      Trials                    = {N_TRIALS} runs")
-print(f"\n  [!] COMPOSITION WARNING:")
-print(f"      {N_TRIALS} trials on same data --> TOTAL consumed:")
-print(f"        Basic composition    : e_total = {total_epsilon_basic:.4f}  (= {N_TRIALS} x {epsilon})")
-print(f"        Advanced composition : e_total ~ {total_epsilon_advanced:.4f}  (= sqrt({N_TRIALS}) x {epsilon})")
+print(f"\n  [!] COMPOSITION NOTE:")
+print(f"      {N_TRIALS} independent runs on same training data consume:")
+print(f"        Basic Composition: e_total = {total_epsilon_basic:.2f}, delta_total = {N_TRIALS * DELTA:.1e}")
 print(f"  " + "-"*58 + "\n")
 
 # ===========================================================================
-#  5. BASELINE LR — No Privacy (for comparison)
+#  5. BASELINE LR — No Privacy (fit_intercept=False on augmented X)
 # ===========================================================================
 print(f"[1] Training Baseline Logistic Regression (No DP)...")
-lr_baseline = LogisticRegression(C=C_REG, max_iter=1000, multi_class='multinomial', random_state=BASE_SEED)
-lr_baseline.fit(X_train_norm, y_train)
-y_base_pred  = lr_baseline.predict(X_test_norm)
+lr_baseline = LogisticRegression(
+    C=C_REG, fit_intercept=False, max_iter=1000, multi_class='multinomial', random_state=BASE_SEED
+)
+lr_baseline.fit(X_train, y_train)
+y_base_pred  = lr_baseline.predict(X_test)
 acc_baseline = accuracy_score(y_test, y_base_pred)
 f1_baseline  = f1_score(y_test, y_base_pred, average="macro")
 rec_baseline = recall_score(y_test, y_base_pred, average="macro")
@@ -208,37 +208,34 @@ print(f"    Baseline Recall   : {rec_baseline:.4f}\n")
 
 # ===========================================================================
 #  6. DP LR — OUTPUT PERTURBATION (Gaussian Mechanism)
-#
-#  Algorithm:
-#    1. Train standard L2-regularized LR on clean (normalized) data
-#    2. Add Gaussian noise N(0, sigma^2) to each element of w* and b
-#    3. Release noisy model — this is (epsilon, delta)-DP by Chaudhuri 2008
-#    4. Test on clean X_test (post-processing, DP is preserved)
 # ===========================================================================
 print(f"[2] Training DP LR with Output Perturbation ({N_TRIALS} trials | e={epsilon})...")
-print(f"    Adding Gaussian noise N(0, {sigma:.8f}^2) to trained weights\n")
+print(f"    Adding Gaussian noise N(0, {sigma:.6f}^2) to regularized weight matrix\n")
 
 trial_accs, trial_f1s, trial_recs = [], [], []
-lr_dp = None
+noisy_W_last = None
+
 for trial in range(N_TRIALS):
     seed = BASE_SEED + trial
 
-    # Step 1: Train standard (non-DP) L2-regularized LR
-    lr_dp = LogisticRegression(C=C_REG, max_iter=1000, multi_class='multinomial', random_state=seed)
-    lr_dp.fit(X_train_norm, y_train)
+    # Train regularized model on training data
+    lr_dp = LogisticRegression(
+        C=C_REG, fit_intercept=False, max_iter=1000, multi_class='multinomial', random_state=seed
+    )
+    lr_dp.fit(X_train, y_train)
 
-    # Step 2: Add Gaussian noise to coefficients (Output Perturbation)
+    # Add calibrated Gaussian noise to all weights (including regularized bias column)
     rng = np.random.RandomState(seed)
-    lr_dp.coef_      += rng.normal(0, sigma, size=lr_dp.coef_.shape)
-    lr_dp.intercept_ += rng.normal(0, sigma, size=lr_dp.intercept_.shape)
+    noisy_W = lr_dp.coef_ + rng.normal(0, sigma, size=lr_dp.coef_.shape)
+    noisy_W_last = noisy_W
 
-    # Step 3: Evaluate on clean test set (DP post-processing — safe)
-    y_pred_t = lr_dp.predict(X_test_norm)
+    # Evaluate on clean test set via post-processing
+    y_pred_t = np.argmax(X_test @ noisy_W.T, axis=1)
     acc_t    = accuracy_score(y_test, y_pred_t)
     f1_t     = f1_score(y_test, y_pred_t, average="macro")
     rec_t    = recall_score(y_test, y_pred_t, average="macro")
 
-    print(f"    Trial {trial+1}/{N_TRIALS}  (seed={seed}): Acc={acc_t*100:.2f}%  F1={f1_t:.4f}  Recall={rec_t:.4f}")
+    print(f"    Trial {trial+1:02d}/{N_TRIALS} (seed={seed}): Acc={acc_t*100:.2f}%  F1={f1_t:.4f}  Recall={rec_t:.4f}")
     trial_accs.append(acc_t)
     trial_f1s.append(f1_t)
     trial_recs.append(rec_t)
@@ -248,8 +245,9 @@ acc_std = float(np.std(trial_accs))
 f1_dp   = float(np.mean(trial_f1s))
 rec_dp  = float(np.mean(trial_recs))
 
-y_pred = lr_dp.predict(X_test_norm)
-report = classification_report(y_test, y_pred, target_names=[str(c) for c in le.classes_])
+# Final evaluation classification report from last trial
+y_pred_final = np.argmax(X_test @ noisy_W_last.T, axis=1)
+report = classification_report(y_test, y_pred_final, target_names=[str(c) for c in le.classes_])
 
 # ===========================================================================
 #  7. RESULT SUMMARY
@@ -258,30 +256,37 @@ print(f"\n{'='*60}")
 print(f"  RESULT SUMMARY")
 print(f"{'='*60}")
 print(f"  Baseline Accuracy (No DP)              : {acc_baseline * 100:.2f}%")
-print(f"  Baseline F1 Score                      : {f1_baseline:.4f}")
-print(f"  Baseline Recall                        : {rec_baseline:.4f}")
-print(f"  " + "-"*58)
-print(f"  DP Accuracy ({N_TRIALS} trials, e={epsilon})          : {acc_dp * 100:.2f}% +/- {acc_std * 100:.2f}%")
-print(f"  DP Macro F1 Score                      : {f1_dp:.4f}")
-print(f"  DP Macro Recall                        : {rec_dp:.4f}")
+print(f"  DP Accuracy (Output Perturbation e={epsilon}): {acc_dp * 100:.2f}% +/- {acc_std * 100:.2f}%")
 print(f"  Accuracy Drop (Privacy Cost)           : {(acc_baseline - acc_dp) * 100:.2f}%")
-print(f"  Gaussian Sigma                         : {sigma:.8f}")
-print(f"  Mechanism                              : Output Perturbation (Chaudhuri & Monteleoni, 2008)")
-print(f"  " + "-"*58)
-print(f"  PRIVACY BUDGET ACCOUNTING:")
-print(f"    Mechanism                : Analytic Gaussian (Balle & Wang, 2018)")
-print(f"    Per-run guarantee        : ({epsilon}, {DELTA})-DP")
-print(f"    Total consumed (basic)   : ({total_epsilon_basic:.4f}, {DELTA})-DP  <-- {N_TRIALS} runs x e={epsilon}")
-print(f"    Total consumed (advanced): (~{total_epsilon_advanced:.4f}, ...)-DP  <-- sqrt({N_TRIALS}) x e={epsilon}")
-print(f"  " + "-"*58)
-print(f"\n  PER-CLASS REPORT (last trial):\n")
+print(f"  DP F1 Score (Macro)                    : {f1_dp:.4f}")
+print(f"  DP Recall (Macro)                      : {rec_dp:.4f}")
+print(f"  Trials Run                             : {N_TRIALS}")
+print(f"{'='*60}")
+
+print("\nDetailed Classification Report (Trial 10):")
 print(report)
 
 # ===========================================================================
-#  8. SAVE MODEL
+#  8. SAVE TRAINED MODEL & METADATA
 # ===========================================================================
 os.makedirs("saved_models", exist_ok=True)
-model_path = "saved_models/lr_gaussian.pkl"
-joblib.dump(lr_dp, model_path)
-print(f"  [+] Model successfully saved to: {model_path}")
+model_artifact = {
+    "model_name": "Logistic Regression",
+    "mechanism": "Analytic Gaussian Mechanism (Output Perturbation)",
+    "epsilon": epsilon,
+    "delta": DELTA,
+    "C_reg": C_REG,
+    "sensitivity": l2_sensitivity,
+    "sigma": sigma,
+    "noisy_weights": noisy_W_last,
+    "accuracy_baseline": acc_baseline,
+    "accuracy_dp_mean": acc_dp,
+    "accuracy_dp_std": acc_std,
+    "f1_dp_macro": f1_dp,
+    "feature_cols": FEATURE_COLS,
+    "domain_bounds": DOMAIN_BOUNDS,
+    "dataset_used": DATASET_PATH
+}
+joblib.dump(model_artifact, "saved_models/lr_gaussian_model.pkl")
+print("  Model artifact saved to saved_models/lr_gaussian_model.pkl")
 print(f"{'='*60}\n")

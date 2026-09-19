@@ -39,7 +39,7 @@ warnings.filterwarnings("once")
 #  CONFIGURATION
 # ===========================================================================
 DATASET_PATH = "datasets/dataset_4_lr_laplace.json"   # ONLY this dataset
-N_TRIALS     = 3
+N_TRIALS     = 10
 BASE_SEED    = 42
 
 # ===========================================================================

@@ -28,7 +28,7 @@ build/
 Thumbs.db
 
 # ML artifacts — do not commit trained models or cached results
-models/
+saved_models/
 *.pkl
 *.joblib
 results/training_results.json

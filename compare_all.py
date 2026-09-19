@@ -1,12 +1,14 @@
 """
 PrivaCare-AI - compare_all.py
-Combined comparison of all DP models and mechanisms.
+Combined benchmark and comparison across all 4 DP models and mechanisms.
 
-Runs DP models across multiple epsilon values:
-  - Random Forest       (diffprivlib tree-based DP)
-  - Logistic Regression (diffprivlib objective perturbation DP)
+Each model evaluates on its dedicated independent synthetic replicate dataset:
+  - Model 1: Gaussian Naive Bayes (diffprivlib GaussianNB) -> datasets/dataset_1_rf_gaussian.json
+  - Model 2: Random Forest (diffprivlib RandomForest)      -> datasets/dataset_2_rf_laplace.json
+  - Model 3: Logistic Regression (Output Gaussian DP)      -> datasets/dataset_3_lr_gaussian.json
+  - Model 4: Logistic Regression (Objective Laplace DP)    -> datasets/dataset_4_lr_laplace.json
 
-Output: Full comparison table with accuracy, F1, privacy params.
+Evaluates accuracy, F1 score, and privacy-utility tradeoff across epsilons [0.5, 0.7, 1.0].
 """
 
 import math
@@ -15,58 +17,47 @@ import pandas as pd
 from scipy.special import erfc
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.naive_bayes import GaussianNB
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import accuracy_score, f1_score
 import diffprivlib.models as dp
+import os
 import warnings
 warnings.filterwarnings("once")
 
 # ===========================================================================
-#  SHARED CONFIG
+#  CONFIG
 # ===========================================================================
-N_TRIALS  = 3
+N_TRIALS  = 5
 BASE_SEED = 42
 DELTA     = 1e-5
 EPSILONS  = [0.5, 0.7, 1.0]
 
+FEATURE_COLS = [
+    "glucose_level",
+    "stress_level",
+    "heart_rate",
+    "blood_pressure_systolic"
+]
+
 DOMAIN_BOUNDS = {
-    "heart_rate":               (30,    220),
-    "blood_oxygen":             (70.0, 100.0),
-    "blood_pressure_systolic":  (60,    250),
-    "blood_pressure_diastolic": (40,    150),
-    "glucose_level":            (30.0,  300.0),
-    "body_temperature":         (94.0,  107.0),
-    "respiratory_rate":         (8,     40),
-    "activity_level":           (0.0,   1.0),
-    "sleep_quality":            (0.0,   1.0),
-    "stress_level":             (0.0,   1.0),
-    "hrv_sdnn":                 (5.0,  200.0),
-    "steps_count":              (0,    15000),
-    "calories_burned":          (0,     5000),
-    "age":                      (0,     120),
-    "gender":                   (0,     1),
+    "glucose_level":            (30.0, 300.0),
+    "stress_level":             (0.0,  1.0),
+    "heart_rate":               (30,   220),
+    "blood_pressure_systolic":  (60,   250),
 }
-BINARY_FEATURES = {"gender"}
-GENDER_MAP = {"male": 1, "m": 1, "female": 0, "f": 0, "woman": 0, "man": 1}
 
 # ===========================================================================
-#  SHARED HELPERS
+#  HELPERS
 # ===========================================================================
-def normalize(X, feature_names, fallback=None):
+def normalize(X, feature_names):
     X_norm = X.copy().astype(float)
-    fb = {}
     for i, col in enumerate(feature_names):
-        if col in DOMAIN_BOUNDS:
-            lo, hi = DOMAIN_BOUNDS[col]
-        elif fallback and col in fallback:
-            lo, hi = fallback[col]
-        else:
-            lo, hi = float(X[:, i].min()), float(X[:, i].max())
-            fb[col] = (lo, hi)
+        lo, hi = DOMAIN_BOUNDS[col]
         X_norm[:, i] = np.clip(X_norm[:, i], lo, hi)
         X_norm[:, i] = (X_norm[:, i] - lo) / (hi - lo + 1e-12)
-    return X_norm, fb
+    return X_norm
 
 def analytic_gaussian_sigma(epsilon, delta, sensitivity):
     def phi(t):
@@ -84,169 +75,232 @@ def analytic_gaussian_sigma(epsilon, delta, sensitivity):
             lo = mid
     return hi
 
-# ===========================================================================
-#  TRAINING WRAPPERS
-# ===========================================================================
-def train_rf_laplace(X_train_norm, X_test_norm, y_train, epsilon, seed):
-    """RF + diffprivlib (Tree DP)"""
-    bounds = ([0.0] * X_train_norm.shape[1], [1.0] * X_train_norm.shape[1])
-    classes = np.unique(y_train)
-    model = dp.RandomForestClassifier(
-        n_estimators=20, max_depth=10, 
-        epsilon=epsilon, bounds=bounds, classes=classes, random_state=seed
+def load_and_split(filepath):
+    df = pd.read_json(filepath)
+    X  = df[FEATURE_COLS].values.astype(float)
+    le = LabelEncoder()
+    y  = le.fit_transform(df["health_event"].values)
+    X_tr, X_te, y_tr, y_te = train_test_split(
+        X, y, test_size=0.2, random_state=BASE_SEED, stratify=y
     )
-    model.fit(X_train_norm, y_train)
-    return model.predict(X_test_norm)
+    return X_tr, X_te, y_tr, y_te
 
-def train_lr_laplace(X_train_norm, X_test_norm, y_train, epsilon, seed):
-    """LR + diffprivlib (Objective Perturbation)"""
-    # Uses 4 features
-    data_norm = math.sqrt(4)
-    model = dp.LogisticRegression(epsilon=epsilon, data_norm=data_norm, random_state=seed)
-    model.fit(X_train_norm, y_train)
-    return model.predict(X_test_norm)
+# ===========================================================================
+#  MODEL 1: Gaussian Naive Bayes (Sufficient Statistics Perturbation)
+# ===========================================================================
+def eval_nb_gaussian():
+    X_tr, X_te, y_tr, y_te = load_and_split("datasets/dataset_1_rf_gaussian.json")
+    X_tr_norm = normalize(X_tr, FEATURE_COLS)
+    X_te_norm = normalize(X_te, FEATURE_COLS)
 
-def train_lr_gaussian(X_train_norm, X_test_norm, y_train, epsilon, seed):
-    """LR + True Gaussian (Output Perturbation)"""
-    n, _ = X_train_norm.shape
-    num_classes = len(np.unique(y_train))
-    C = 1.0 # Regularization strength
-    
-    # Sensitivity of weights for L2 regularized LR: 2 * C / n
-    l2_sensitivity = (2 * C / n) * math.sqrt(num_classes)
-    sigma = analytic_gaussian_sigma(epsilon, DELTA, l2_sensitivity)
-    
-    # Train non-DP model
-    model = LogisticRegression(C=C, max_iter=1000, multi_class='multinomial', random_state=seed)
-    model.fit(X_train_norm, y_train)
-    
-    # Add Gaussian noise to weights and intercept
-    rng = np.random.RandomState(seed)
-    model.coef_ += rng.normal(0, sigma, size=model.coef_.shape)
-    model.intercept_ += rng.normal(0, sigma, size=model.intercept_.shape)
-    
-    return model.predict(X_test_norm)
+    # Baseline
+    base_clf = GaussianNB()
+    base_clf.fit(X_tr_norm, y_tr)
+    base_acc = accuracy_score(y_te, base_clf.predict(X_te_norm))
 
-def train_nb_gaussian(X_train_norm, X_test_norm, y_train, epsilon, seed):
-    """Naive Bayes + True Gaussian (Sufficient Statistics Perturbation)"""
-    bounds = ([0.0] * X_train_norm.shape[1], [1.0] * X_train_norm.shape[1])
-    model = dp.GaussianNB(epsilon=epsilon, bounds=bounds)
-    model.fit(X_train_norm, y_train)
-    return model.predict(X_test_norm)
+    bounds = ([0.0] * len(FEATURE_COLS), [1.0] * len(FEATURE_COLS))
+
+    def train_fn(eps, seed):
+        model = dp.GaussianNB(epsilon=eps, bounds=bounds)
+        if hasattr(model, 'random_state'):
+            model.random_state = seed
+        model.fit(X_tr_norm, y_tr)
+        return model.predict(X_te_norm)
+
+    return "Gaussian Naive Bayes", "Sufficient Stats DP", "pure e-DP", base_acc, y_te, train_fn
+
+# ===========================================================================
+#  MODEL 2: Random Forest (Tree-based DP)
+# ===========================================================================
+def eval_rf_laplace():
+    X_tr, X_te, y_tr, y_te = load_and_split("datasets/dataset_2_rf_laplace.json")
+    X_tr_norm = normalize(X_tr, FEATURE_COLS)
+    X_te_norm = normalize(X_te, FEATURE_COLS)
+
+    # Baseline
+    base_clf = RandomForestClassifier(n_estimators=20, random_state=BASE_SEED, n_jobs=-1)
+    base_clf.fit(X_tr_norm, y_tr)
+    base_acc = accuracy_score(y_te, base_clf.predict(X_te_norm))
+
+    bounds = ([0.0] * len(FEATURE_COLS), [1.0] * len(FEATURE_COLS))
+    classes = np.unique(y_tr)
+
+    def train_fn(eps, seed):
+        model = dp.RandomForestClassifier(
+            n_estimators=20, max_depth=10, epsilon=eps,
+            bounds=bounds, classes=classes, random_state=seed
+        )
+        model.fit(X_tr_norm, y_tr)
+        return model.predict(X_te_norm)
+
+    return "Random Forest (Laplace)", "Tree-based DP", "pure e-DP", base_acc, y_te, train_fn
+
+# ===========================================================================
+#  MODEL 3: Logistic Regression (Analytic Gaussian Output Perturbation)
+# ===========================================================================
+def eval_lr_gaussian():
+    X_tr, X_te, y_tr, y_te = load_and_split("datasets/dataset_3_lr_gaussian.json")
+    X_tr_norm = normalize(X_tr, FEATURE_COLS)
+    X_te_norm = normalize(X_te, FEATURE_COLS)
+
+    # Augment with constant bias column and scale to ||x||_2 <= 1
+    d = len(FEATURE_COLS)
+    X_tr_aug = np.hstack([X_tr_norm, np.ones((X_tr_norm.shape[0], 1))]) / math.sqrt(d + 1)
+    X_te_aug = np.hstack([X_te_norm, np.ones((X_te_norm.shape[0], 1))]) / math.sqrt(d + 1)
+
+    C_REG = 0.02
+    l2_sens = 2.0 * math.sqrt(2) * C_REG
+
+    # Baseline (fit_intercept=False on augmented data)
+    base_clf = LogisticRegression(C=C_REG, fit_intercept=False, max_iter=1000, multi_class='multinomial', random_state=BASE_SEED)
+    base_clf.fit(X_tr_aug, y_tr)
+    base_acc = accuracy_score(y_te, base_clf.predict(X_te_aug))
+
+    def train_fn(eps, seed):
+        sigma = analytic_gaussian_sigma(eps, DELTA, sensitivity=l2_sens)
+        clf = LogisticRegression(C=C_REG, fit_intercept=False, max_iter=1000, multi_class='multinomial', random_state=seed)
+        clf.fit(X_tr_aug, y_tr)
+        rng = np.random.RandomState(seed)
+        noisy_W = clf.coef_ + rng.normal(0, sigma, size=clf.coef_.shape)
+        preds = np.argmax(X_te_aug @ noisy_W.T, axis=1)
+        return preds
+
+    return "Logistic Reg (Gaussian)", "Output Perturbation", "(e, d)-DP", base_acc, y_te, train_fn
+
+# ===========================================================================
+#  MODEL 4: Logistic Regression (Objective Perturbation)
+# ===========================================================================
+def eval_lr_laplace():
+    X_tr, X_te, y_tr, y_te = load_and_split("datasets/dataset_4_lr_laplace.json")
+    # Z-score-like normalization clipped to [-2, 2]
+    X_tr_norm = X_tr.copy().astype(float)
+    X_te_norm = X_te.copy().astype(float)
+    for i, col in enumerate(FEATURE_COLS):
+        lo, hi = DOMAIN_BOUNDS[col]
+        mid = (lo + hi) / 2.0
+        scale = (hi - lo) / 4.0
+        X_tr_norm[:, i] = np.clip((X_tr[:, i] - mid) / scale, -2.0, 2.0)
+        X_te_norm[:, i] = np.clip((X_te[:, i] - mid) / scale, -2.0, 2.0)
+
+    data_norm = 4.0
+
+    # Baseline
+    base_clf = LogisticRegression(C=1.0, max_iter=1000, multi_class='multinomial', random_state=BASE_SEED)
+    base_clf.fit(X_tr_norm, y_tr)
+    base_acc = accuracy_score(y_te, base_clf.predict(X_te_norm))
+
+    def train_fn(eps, seed):
+        model = dp.LogisticRegression(epsilon=eps, data_norm=data_norm, random_state=seed)
+        model.fit(X_tr_norm, y_tr)
+        return model.predict(X_te_norm)
+
+    return "Logistic Reg (Laplace)", "Objective Perturbation", "pure e-DP", base_acc, y_te, train_fn
 
 
 # ===========================================================================
-#  LOAD DATA
+#  MAIN BENCHMARK RUNNER
 # ===========================================================================
-print("\n" + "="*70)
-print("  PrivaCare-AI -- compare_all.py")
-print("  Comparing all DP models and mechanisms across epsilon values")
-print("="*70)
+def main():
+    print("\n" + "="*75)
+    print("  PrivaCare-AI -- Comprehensive DP Benchmark (compare_all.py)")
+    print(f"  Epsilons : {EPSILONS} | Trials: {N_TRIALS} per configuration")
+    print(f"  Delta    : {DELTA} (for approximate DP models)")
+    print("="*75 + "\n")
 
-df = pd.read_csv("data/dataset.csv")
-target_col = "health_event" if "health_event" in df.columns else df.columns[-1]
+    evaluators = [
+        eval_nb_gaussian,
+        eval_rf_laplace,
+        eval_lr_gaussian,
+        eval_lr_laplace,
+    ]
 
-if "gender" in df.columns and df["gender"].dtype == object:
-    df["gender"] = df["gender"].apply(
-        lambda v: GENDER_MAP[str(v).strip().lower()]
-    )
+    results = []
 
-# Use the 4 core features for fair comparison across all models
-feature_cols = [
-    "glucose_level",
-    "stress_level",
-    "heart_rate",
-    "blood_pressure_systolic"
-]
+    for fn in evaluators:
+        name, mech, dp_type, base_acc, y_te, train_fn = fn()
+        print(f"--> Benchmarking: {name} [{mech} | {dp_type}] (Baseline: {base_acc*100:.2f}%)")
+        row = {
+            "Model": name,
+            "Mechanism": mech,
+            "DP Type": dp_type,
+            "Baseline": f"{base_acc*100:.2f}%",
+            "base_acc_raw": base_acc
+        }
 
-X  = df[feature_cols].values.astype(float)
-le = LabelEncoder()
-y  = le.fit_transform(df[target_col].values)
+        for eps in EPSILONS:
+            accs, f1s = [], []
+            for trial in range(N_TRIALS):
+                seed = BASE_SEED + trial
+                y_pred = train_fn(eps, seed)
+                accs.append(accuracy_score(y_te, y_pred))
+                f1s.append(f1_score(y_te, y_pred, average="macro"))
 
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=BASE_SEED, stratify=y
-)
-X_train_norm, fb = normalize(X_train, feature_cols)
-X_test_norm,  _  = normalize(X_test, feature_cols, fallback=fb)
+            acc_m = float(np.mean(accs)) * 100
+            acc_s = float(np.std(accs)) * 100
+            f1_m  = float(np.mean(f1s))
 
-print(f"\n  Dataset : {X.shape[0]:,} rows | {len(feature_cols)} features")
-print(f"  Target  : '{target_col}' | {len(np.unique(y))} classes")
-print(f"  Epsilons: {EPSILONS}")
-print(f"  Trials  : {N_TRIALS} per run (mean reported)\n")
+            row[f"e={eps} Acc"] = f"{acc_m:.2f}%±{acc_s:.2f}%"
+            row[f"e={eps} F1"]  = f"{f1_m:.4f}"
+            row[f"e_{eps}_acc_mean"] = acc_m
+            row[f"e_{eps}_acc_std"]  = acc_s
+            print(f"    eps={eps}: Acc = {acc_m:.2f}% +/- {acc_s:.2f}% | F1 = {f1_m:.4f}")
 
-# Baseline (no DP)
-rf_base = RandomForestClassifier(n_estimators=100, random_state=BASE_SEED, n_jobs=-1)
-rf_base.fit(X_train_norm, y_train)
-acc_base_rf = accuracy_score(y_test, rf_base.predict(X_test_norm))
+        results.append(row)
+        print()
 
-lr_base = LogisticRegression(max_iter=1000, random_state=BASE_SEED)
-lr_base.fit(X_train_norm, y_train)
-acc_base_lr = accuracy_score(y_test, lr_base.predict(X_test_norm))
+    # ===========================================================================
+    #  FORMAT SUMMARY TABLES
+    # ===========================================================================
+    output_lines = []
+    output_lines.append("="*85)
+    output_lines.append("  PRIVACARE-AI: FULL BENCHMARK RESULTS")
+    output_lines.append("="*85)
 
-# ===========================================================================
-#  RUN ALL EXPERIMENTS
-# ===========================================================================
-MODELS = [
-    ("RF Laplace (Tree DP)",     "Tree-based DP",          train_rf_laplace,       acc_base_rf, "pure e-DP"),
-    ("LR Laplace (Objective)",   "Objective Perturbation", train_lr_laplace,       acc_base_lr, "pure e-DP"),
-    ("LR True Gaussian",         "Output Perturbation",    train_lr_gaussian,      acc_base_lr, "(e, d)-DP"),
-    ("NB True Gaussian",         "Sufficient Stats DP",    train_nb_gaussian,      acc_base_rf, "(e, d)-DP")
-]
+    hdr = f"{'Model':<25} {'Mechanism':<24} {'DP Type':<11} {'Baseline':<10} | {'e=0.5':^17} | {'e=0.7':^17} | {'e=1.0':^17}"
+    output_lines.append("\n" + hdr)
+    output_lines.append("-" * len(hdr))
 
-results = []
+    for r in results:
+        line = (f"{r['Model']:<25} {r['Mechanism']:<24} {r['DP Type']:<11} {r['Baseline']:<10} | "
+                f"{r['e=0.5 Acc']:^17} | "
+                f"{r['e=0.7 Acc']:^17} | "
+                f"{r['e=1.0 Acc']:^17}")
+        output_lines.append(line)
 
-for model_name, mechanism, train_fn, acc_base, dp_type in MODELS:
-    row = {"Model": model_name, "Mechanism": mechanism,
-           "DP Type": dp_type, "Baseline": f"{acc_base*100:.2f}%"}
-    print(f"  Running: {model_name} + {mechanism.strip()} ...")
-    for eps in EPSILONS:
-        accs, f1s = [], []
-        for trial in range(N_TRIALS):
-            seed     = BASE_SEED + trial
-            y_pred   = train_fn(X_train_norm, X_test_norm, y_train, eps, seed)
-            accs.append(accuracy_score(y_test, y_pred))
-            f1s.append(f1_score(y_test, y_pred, average="macro"))
-        acc_mean = np.mean(accs) * 100
-        acc_std  = np.std(accs) * 100
-        f1_mean  = np.mean(f1s)
-        row[f"e={eps} Acc"] = f"{acc_mean:.1f}%±{acc_std:.1f}%"
-        row[f"e={eps} F1"]  = f"{f1_mean:.3f}"
-    results.append(row)
+    output_lines.append("\n  -- F1 Scores (Macro Average) --\n")
+    hdr2 = f"{'Model':<25} {'Mechanism':<24} | {'e=0.5':^12} | {'e=0.7':^12} | {'e=1.0':^12}"
+    output_lines.append(hdr2)
+    output_lines.append("-" * len(hdr2))
+    for r in results:
+        line2 = (f"{r['Model']:<25} {r['Mechanism']:<24} | "
+                 f"{r['e=0.5 F1']:^12} | "
+                 f"{r['e=0.7 F1']:^12} | "
+                 f"{r['e=1.0 F1']:^12}")
+        output_lines.append(line2)
 
-# ===========================================================================
-#  PRINT COMPARISON TABLE
-# ===========================================================================
-print("\n\n" + "="*70)
-print("  COMPARISON SUMMARY")
-print("="*70)
-print(f"\n  Baseline RF (No DP): {acc_base_rf*100:.2f}%")
-print(f"  Baseline LR (No DP): {acc_base_lr*100:.2f}%\n")
+    # Dynamic Key Empirical Findings
+    output_lines.append("\n" + "="*85)
+    output_lines.append("  EMPIRICAL RESEARCH FINDINGS (COMPUTED DYNAMICALLY):")
+    for r in results:
+        base_num = r["base_acc_raw"] * 100
+        e05_num  = r["e_0.5_acc_mean"]
+        e10_num  = r["e_1.0_acc_mean"]
+        drop_05  = base_num - e05_num
+        recovery = e10_num - e05_num
+        output_lines.append(
+            f"  * {r['Model']:<25}: Baseline = {base_num:.2f}%. At strict privacy (e=0.5), accuracy drop is "
+            f"{drop_05:.2f}%. Relaxing budget to e=1.0 recovers +{recovery:.2f}% accuracy."
+        )
+    output_lines.append("="*85 + "\n")
 
-# Accuracy table
-hdr = f"{'Model':<22} {'Mechanism':<26} {'DP Type':<12} | {'e=0.5':^18} | {'e=0.7':^18} | {'e=1.0':^18}"
-print(hdr)
-print("-"*len(hdr))
-for row in results:
-    line = (f"{row['Model']:<22} {row['Mechanism']:<26} {row['DP Type']:<12} | "
-            f"{row.get('e=0.5 Acc','N/A'):^18} | "
-            f"{row.get('e=0.7 Acc','N/A'):^18} | "
-            f"{row.get('e=1.0 Acc','N/A'):^18}")
-    print(line)
+    summary_text = "\n".join(output_lines)
+    print(summary_text)
 
-print("\n  -- F1 Scores (macro) --\n")
-hdr2 = f"{'Model':<22} {'Mechanism':<26} | {'e=0.5':^10} | {'e=0.7':^10} | {'e=1.0':^10}"
-print(hdr2)
-print("-"*len(hdr2))
-for row in results:
-    line2 = (f"{row['Model']:<22} {row['Mechanism']:<26} | "
-             f"{row.get('e=0.5 F1','N/A'):^10} | "
-             f"{row.get('e=0.7 F1','N/A'):^10} | "
-             f"{row.get('e=1.0 F1','N/A'):^10}")
-    print(line2)
+    # Save to results/compare_all.txt
+    os.makedirs("results", exist_ok=True)
+    with open("results/compare_all.txt", "w") as f:
+        f.write(summary_text)
+    print("  Results saved to results/compare_all.txt\n")
 
-print("\n" + "="*70)
-print("  KEY RESEARCH FINDING:")
-print("  1. LR True Gaussian (~47%) survives slightly better because linear boundaries average out noise.")
-print("  2. RF True Gaussian (~23%) completely fails because trees split on pure noise.")
-print("  3. RF Laplace (Tree-DP) (~90%) rescues RF by using Objective Perturbation.")
-print("="*70 + "\n")
+if __name__ == "__main__":
+    main()
