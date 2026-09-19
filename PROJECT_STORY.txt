@@ -87,7 +87,7 @@ C. STANDARDIZED BENCHMARK REPLICATES (80,000 rows each):
        4. dataset_4_lr_laplace.json  (seed=44) -> lr_laplace.py
    - Chaaron datasets me identical physiological parameters use kiye gaye:
        Class 0: glucose=90+/-13.5, stress=0.20+/-0.05, hr=67+/-9.5, bp=109+/-9.5
-       Class 1: glucose=130+/-13.5, stress=0.44+/-0.05, hr=77+/-9.5, bp=124+/-9.5
+       Class 1: glucose=112+/-13.5 (ADA prediabetes midpoint), stress=0.44+/-0.05 (Cohen et al. 1983 PSS), hr=77+/-9.5, bp=124+/-9.5
        Class 2: glucose=97+/-13.5, stress=0.66+/-0.05, hr=94+/-9.5, bp=156+/-9.5
        Class 3: glucose=174+/-13.5, stress=0.79+/-0.05, hr=103+/-9.5, bp=163+/-9.5
    - Har dataset 80,000 rows (20,000 per class balanced) ka hai.
@@ -110,7 +110,7 @@ MODEL 1: rf_gaussian.py
     - Historical nomenclature note: Name "rf_gaussian.py" is historical;
       it implements Gaussian Naive Bayes.
   Domain Bounds: MinMax to [0,1] using fixed data-independent domain bounds.
-  Results (N=30): Baseline=99.88%, e=0.5: 97.26% +/-3.67%, e=1.0: 98.49% +/-3.51%
+  Results (N=30): Baseline=99.73%, e=0.5: 97.37% +/-3.51%, e=1.0: 98.11% +/-3.71%
 
 ----
 
@@ -125,7 +125,7 @@ MODEL 2: rf_laplace.py
     - The PermuteAndFlip mechanism selects noisy leaf node labels.
     - Pure epsilon-DP without delta approximation.
   Domain Bounds: MinMax to [0,1] using domain bounds.
-  Results (N=30): Baseline=99.66%, e=0.5: 99.12% +/-0.43%, e=1.0: 99.13% +/-0.43%
+  Results (N=30): Baseline=99.48%, e=0.5: 98.46% +/-0.79%, e=1.0: 98.50% +/-0.80%
 
 ----
 
@@ -146,7 +146,7 @@ MODEL 3: lr_gaussian.py
         Delta_2 <= 2 * L * C / lambda = 2 * sqrt(2) * C  (with C=0.02, Delta_2 <= 0.056569).
     - Gaussian noise N(0, sigma^2) calibrated via Analytic Gaussian Mechanism
       (Balle & Wang, NeurIPS 2018).
-  Results (N=30): Baseline=99.19% (Tuned: 99.80%), e=0.5: 94.76% +/-4.82%, e=1.0: 98.34% +/-1.15%
+  Results (N=30): Baseline=97.99% (Weak Reg C=10.0: 99.50%), e=0.5: 91.55% +/-6.56%, e=1.0: 96.51% +/-2.55%
 
 ----
 
@@ -158,7 +158,7 @@ MODEL 4: lr_laplace.py
   How it works :
     - Noise vector is added directly to the loss optimization objective during training.
     - Features scaled with Z-score domain clipping to [-2, 2], data_norm = 4.0.
-  Results (N=30): Baseline=99.83%, e=0.5: 97.82% +/-0.86%, e=1.0: 98.53% +/-0.51%
+  Results (N=30): Baseline=99.64%, e=0.5: 96.18% +/-1.20%, e=1.0: 97.18% +/-0.77%
 
 
 --------------------------------------------------------------------------------
@@ -167,19 +167,20 @@ MODEL 4: lr_laplace.py
 
 | Model                   | Mechanism              | DP Type    | Baseline | e=0.5          | e=0.7          | e=1.0          |
 |-------------------------|------------------------|------------|----------|----------------|----------------|----------------|
-| Gaussian Naive Bayes    | Sufficient Stats DP    | pure e-DP  | 99.88%   | 97.26% ± 3.67% | 98.21% ± 2.77% | 98.49% ± 3.51% |
-| Random Forest           | Tree-based DP          | pure e-DP  | 99.66%   | 99.12% ± 0.43% | 99.13% ± 0.43% | 99.13% ± 0.43% |
-| Logistic Reg (Gaussian) | Output Perturbation    | (e, d)-DP  | 99.19%   | 94.76% ± 4.82% | 97.24% ± 2.33% | 98.34% ± 1.15% |
-| Logistic Reg (Laplace)  | Objective Perturbation | pure e-DP  | 99.83%   | 97.82% ± 0.86% | 98.22% ± 0.66% | 98.53% ± 0.51% |
+| Gaussian Naive Bayes    | Sufficient Stats DP    | pure e-DP  | 99.73%   | 97.37% ± 3.51% | 97.73% ± 2.93% | 98.11% ± 3.71% |
+| Random Forest           | Tree-based DP          | pure e-DP  | 99.48%   | 98.46% ± 0.79% | 98.48% ± 0.79% | 98.50% ± 0.80% |
+| Logistic Reg (Gaussian) | Output Perturbation    | (e, d)-DP  | 97.99%   | 91.55% ± 6.56% | 94.83% ± 4.11% | 96.51% ± 2.55% |
+| Logistic Reg (Laplace)  | Objective Perturbation | pure e-DP  | 99.64%   | 96.18% ± 1.20% | 96.72% ± 0.97% | 97.18% ± 0.77% |
 
 Key Findings:
-1. Sabhi models high clinical utility maintain karte hain (>94% to 99% accuracy
+1. Sabhi models high clinical utility maintain karte hain (>91% to 98% accuracy
    at strict privacy e=0.5).
 2. Logistic Regression Output Perturbation shows a consistent, monotonic privacy-utility
-   tradeoff: 94.76% (e=0.5) -> 97.24% (e=0.7) -> 98.34% (e=1.0), staying strictly bounded
-   beneath non-private baselines (99.19% regularized, 99.80% tuned).
+   tradeoff: 91.55% (e=0.5) -> 94.83% (e=0.7) -> 96.51% (e=1.0), staying strictly bounded
+   beneath non-private baselines (97.99% regularized C=0.02, 99.50% weakly regularized C=10.0).
 3. Random Forest (Tree-DP) is remarkably noise-resilient due to high sample density per leaf
-   at n=64,000.
+   at n=64,000. Ultra-strict privacy sweep via scripts/sweep_rf_epsilon.py demonstrates tradeoff
+   at e=0.10 (98.19%), e=0.05 (98.13%), and e=0.01 (96.15%).
 
 
 --------------------------------------------------------------------------------

@@ -193,19 +193,20 @@ print(f"      C_reg                     = {C_REG}")
 print(f"      L2 Sensitivity Bound (2*sqrt(2)*C)= {l2_sensitivity:.6f}")
 print(f"      Sigma (Analytic GM)       = {sigma:.6f}  [noise std added to weights]")
 print(f"      Trials                    = {N_TRIALS} runs")
-print(f"\n  [!] COMPOSITION NOTE:")
-print(f"      {N_TRIALS} independent runs on same training data consume:")
-print(f"        Basic Composition: e_total = {total_epsilon_basic:.2f}, delta_total = {N_TRIALS * DELTA:.1e}")
+print(f"\n  [!] PRIVACY ACCOUNTING NOTE:")
+print(f"      - Production Release Guarantee: A single deployed release satisfies target (epsilon, delta) = ({epsilon}, {DELTA})")
+print(f"      - Evaluation Note: These {N_TRIALS} runs are local Monte Carlo simulations to estimate utility distribution.")
+print(f"      - If all {N_TRIALS} models were released publicly: Basic Composition e_total = {total_epsilon_basic:.2f}, delta_total = {N_TRIALS * DELTA:.1e}")
 print(f"  " + "-"*58 + "\n")
 
 # ===========================================================================
-#  5. BASELINES (Tuned Non-Private vs Regularized C=0.02)
+#  5. BASELINES (Weakly Regularized C=10.0 vs DP Regularized C=0.02)
 # ===========================================================================
 print(f"[1] Training Non-Private Baselines...")
-# Tuned non-private baseline (unconstrained C=1.0)
-lr_tuned = LogisticRegression(C=1.0, max_iter=1000, multi_class='multinomial', random_state=BASE_SEED)
-lr_tuned.fit(X_train_raw, y_train)
-acc_tuned_base = accuracy_score(y_test, lr_tuned.predict(X_test_raw))
+# Weakly regularized non-private baseline (C=10.0 on normalized augmented features)
+lr_weak = LogisticRegression(C=10.0, fit_intercept=False, max_iter=1000, multi_class='multinomial', random_state=BASE_SEED)
+lr_weak.fit(X_train, y_train)
+acc_weak_base = accuracy_score(y_test, lr_weak.predict(X_test))
 
 # Regularized baseline (C=0.02, fit_intercept=False on augmented data)
 lr_baseline = LogisticRegression(
@@ -217,8 +218,8 @@ acc_baseline = accuracy_score(y_test, y_base_pred)
 f1_baseline  = f1_score(y_test, y_base_pred, average="macro")
 rec_baseline = recall_score(y_test, y_base_pred, average="macro")
 
-print(f"    Tuned Baseline (C=1.0, unconstrained) : {acc_tuned_base * 100:.2f}%")
-print(f"    Regularized Baseline (C={C_REG})       : {acc_baseline * 100:.2f}% (F1={f1_baseline:.4f})\n")
+print(f"    Weakly Regularized Baseline (C=10.0) : {acc_weak_base * 100:.2f}%")
+print(f"    DP Regularized Baseline (C={C_REG})   : {acc_baseline * 100:.2f}% (F1={f1_baseline:.4f})\n")
 
 # ===========================================================================
 #  6. DP LR — OUTPUT PERTURBATION (Gaussian Mechanism)

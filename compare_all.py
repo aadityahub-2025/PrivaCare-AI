@@ -149,15 +149,15 @@ def eval_lr_gaussian():
     C_REG = 0.02
     l2_sens = 2.0 * math.sqrt(2) * C_REG
 
-    # Regularized baseline
+    # Regularized baseline for DP Output Perturbation (C=0.02)
     base_clf = LogisticRegression(C=C_REG, fit_intercept=False, max_iter=1000, multi_class='multinomial', random_state=BASE_SEED)
     base_clf.fit(X_tr_aug, y_tr)
     base_acc = accuracy_score(y_te, base_clf.predict(X_te_aug))
 
-    # Tuned non-private baseline (C=1.0)
-    tuned_clf = LogisticRegression(C=1.0, max_iter=1000, multi_class='multinomial', random_state=BASE_SEED)
-    tuned_clf.fit(X_tr, y_tr)
-    tuned_acc = accuracy_score(y_te, tuned_clf.predict(X_te))
+    # Weakly regularized non-private baseline (C=10.0 on normalized augmented data)
+    weak_clf = LogisticRegression(C=10.0, fit_intercept=False, max_iter=1000, multi_class='multinomial', random_state=BASE_SEED)
+    weak_clf.fit(X_tr_aug, y_tr)
+    weak_acc = accuracy_score(y_te, weak_clf.predict(X_te_aug))
 
     def train_fn(eps, seed):
         sigma = analytic_gaussian_sigma(eps, DELTA, sensitivity=l2_sens)
@@ -236,15 +236,20 @@ def main():
                 accs.append(accuracy_score(y_te, y_pred))
                 f1s.append(f1_score(y_te, y_pred, average="macro"))
 
-            acc_m = float(np.mean(accs)) * 100
-            acc_s = float(np.std(accs)) * 100
-            f1_m  = float(np.mean(f1s))
+            acc_m   = float(np.mean(accs)) * 100
+            acc_s   = float(np.std(accs)) * 100
+            acc_med = float(np.median(accs)) * 100
+            acc_min = float(np.min(accs)) * 100
+            f1_m    = float(np.mean(f1s))
 
-            row[f"e={eps} Acc"] = f"{acc_m:.2f}% +/- {acc_s:.2f}%"
-            row[f"e={eps} F1"]  = f"{f1_m:.4f}"
-            row[f"e_{eps}_acc_mean"] = acc_m
-            row[f"e_{eps}_acc_std"]  = acc_s
-            print(f"    eps={eps}: Acc = {acc_m:.2f}% +/- {acc_s:.2f}% | F1 = {f1_m:.4f}")
+            row[f"e={eps} Acc"]    = f"{acc_m:.2f}% +/- {acc_s:.2f}%"
+            row[f"e={eps} Med/Min"]= f"Med {acc_med:.2f}% / Min {acc_min:.2f}%"
+            row[f"e={eps} F1"]     = f"{f1_m:.4f}"
+            row[f"e_{eps}_acc_mean"]   = acc_m
+            row[f"e_{eps}_acc_std"]    = acc_s
+            row[f"e_{eps}_acc_median"] = acc_med
+            row[f"e_{eps}_acc_min"]    = acc_min
+            print(f"    eps={eps}: Acc = {acc_m:.2f}% +/- {acc_s:.2f}% | Med = {acc_med:.2f}% | Min = {acc_min:.2f}% | F1 = {f1_m:.4f}")
 
         results.append(row)
         print()

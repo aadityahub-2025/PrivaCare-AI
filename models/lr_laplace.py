@@ -163,10 +163,10 @@ print(f"      data_norm (L2 bound)    = {DATA_NORM:.4f}  (2 * sqrt(k) for Z-scor
 print(f"      Mechanism               : Objective Perturbation (pure epsilon-DP)")
 print(f"      NO delta needed         : Exact DP guarantee")
 print(f"      Trials                  = {N_TRIALS} runs")
-print(f"\n  [!] COMPOSITION WARNING:")
-print(f"      {N_TRIALS} trials on same data --> TOTAL consumed:")
-print(f"        Basic composition    : e_total = {total_epsilon_basic:.4f}  (= {N_TRIALS} x {epsilon})")
-print(f"        (Advanced composition not applicable for pure epsilon-DP)")
+print(f"\n  [!] PRIVACY ACCOUNTING NOTE:")
+print(f"      - Production Release Guarantee: A single deployed release satisfies target epsilon = {epsilon}")
+print(f"      - Evaluation Note: These {N_TRIALS} runs are local Monte Carlo simulations to estimate utility distribution.")
+print(f"      - If all {N_TRIALS} models were released publicly: Basic Composition e_total = {total_epsilon_basic:.2f}")
 print(f"  " + "-"*58 + "\n")
 
 # ===========================================================================

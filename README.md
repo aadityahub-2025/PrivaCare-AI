@@ -100,24 +100,24 @@ Evaluated across $N=30$ trials per configuration with stratified 80/20 train/tes
 
 | Model | DP Mechanism | Formal Guarantee | Baseline (No DP) | $\epsilon=0.5$ (High Privacy) | $\epsilon=0.7$ (Moderate) | $\epsilon=1.0$ (Balanced) |
 |-------|--------------|------------------|------------------|-------------------------------|---------------------------|---------------------------|
-| **Gaussian Naive Bayes** | Sufficient Statistics | Pure $\epsilon$-DP | 99.88% | 97.26% ± 3.67% | 98.21% ± 2.77% | 98.49% ± 3.51% |
-| **Random Forest** | Tree-based DP | Pure $\epsilon$-DP | 99.66% | 99.12% ± 0.43% | 99.13% ± 0.43% | 99.13% ± 0.43% |
-| **Logistic Regression** | Output Perturbation | $(\epsilon, \delta)$-DP | 99.19% (Tuned: 99.80%) | 94.76% ± 4.82% | 97.24% ± 2.33% | 98.34% ± 1.15% |
-| **Logistic Regression** | Objective Perturbation | Pure $\epsilon$-DP | 99.83% | 97.82% ± 0.86% | 98.22% ± 0.66% | 98.53% ± 0.51% |
+| **Gaussian Naive Bayes** | Sufficient Statistics | Pure $\epsilon$-DP | 99.73% | 97.37% ± 3.51% | 97.73% ± 2.93% | 98.11% ± 3.71% |
+| **Random Forest** | Tree-based DP | Pure $\epsilon$-DP | 99.48% | 98.46% ± 0.79% | 98.48% ± 0.79% | 98.50% ± 0.80% |
+| **Logistic Regression** | Output Perturbation | $(\epsilon, \delta)$-DP | 97.99% (Weak Reg: 99.50%) | 91.55% ± 6.56% | 94.83% ± 4.11% | 96.51% ± 2.55% |
+| **Logistic Regression** | Objective Perturbation | Pure $\epsilon$-DP | 99.64% | 96.18% ± 1.20% | 96.72% ± 0.97% | 97.18% ± 0.77% |
 
 ### Macro F1-Scores
 
 | Model | Mechanism | $\epsilon=0.5$ | $\epsilon=0.7$ | $\epsilon=1.0$ |
 |-------|-----------|----------------|----------------|----------------|
-| **Gaussian Naive Bayes** | Sufficient Statistics | 0.9713 | 0.9816 | 0.9837 |
-| **Random Forest** | Tree-based DP | 0.9912 | 0.9913 | 0.9913 |
-| **Logistic Regression** | Output Perturbation | 0.9460 | 0.9721 | 0.9833 |
-| **Logistic Regression** | Objective Perturbation | 0.9781 | 0.9821 | 0.9853 |
+| **Gaussian Naive Bayes** | Sufficient Statistics | 0.9726 | 0.9767 | 0.9798 |
+| **Random Forest** | Tree-based DP | 0.9846 | 0.9848 | 0.9850 |
+| **Logistic Regression** | Output Perturbation | 0.9088 | 0.9462 | 0.9643 |
+| **Logistic Regression** | Objective Perturbation | 0.9615 | 0.9670 | 0.9716 |
 
 ### Detailed Findings:
-1. **Output Perturbation vs Budget:** Logistic Regression under Output Perturbation demonstrates a clear, statistically robust privacy-utility tradeoff over 30 trials: accuracy smoothly ascends from $94.76\% \pm 4.82\%$ at $\epsilon=0.5$ to $97.24\% \pm 2.33\%$ at $\epsilon=0.7$ and $98.34\% \pm 1.15\%$ at $\epsilon=1.0$, remaining strictly bounded beneath the non-private baselines (99.19% regularized, 99.80% tuned).
-2. **Random Forest Noise Resilience:** At $n=64,000$ training rows across 4 separable clinical clusters, each tree leaf aggregates thousands of samples. As a result, diffprivlib's `PermuteAndFlip` mechanism selects the majority class label with near-certainty across $\epsilon \in [0.5, 1.0]$. The tradeoff curve for RF becomes apparent only in ultra-strict budgets ($\epsilon=0.05 \to 99.11\%$, $\epsilon=0.01 \to 98.30\%$).
-3. **Naive Bayes Variance:** Sufficient statistics perturbation on class counts and variances incurs higher variance at strict privacy ($\epsilon=0.5$), which resolves as $\epsilon$ reaches $1.0$.
+1. **Output Perturbation vs Budget:** Logistic Regression under Output Perturbation demonstrates a clear, statistically robust privacy-utility tradeoff over 30 trials: accuracy smoothly ascends from $91.55\% \pm 6.56\%$ at $\epsilon=0.5$ to $94.83\% \pm 4.11\%$ at $\epsilon=0.7$ and $96.51\% \pm 2.55\%$ at $\epsilon=1.0$, remaining strictly bounded beneath the non-private baselines (97.99% regularized $C=0.02$, 99.50% weakly regularized $C=10.0$).
+2. **Random Forest Noise Resilience & Ultra-Strict Sweep:** At $n=64,000$ training rows across 4 separable clinical clusters, each tree leaf aggregates thousands of samples. As a result, diffprivlib's `PermuteAndFlip` mechanism selects majority class labels with near-certainty across $\epsilon \in [0.5, 1.0]$. The tradeoff curve for RF becomes apparent under ultra-strict budgets evaluated via [`scripts/sweep_rf_epsilon.py`](scripts/sweep_rf_epsilon.py): $\epsilon=0.10 \to 98.19\% \pm 0.97\%$, $\epsilon=0.05 \to 98.13\% \pm 0.94\%$ (median 98.42%), and $\epsilon=0.01 \to 96.15\% \pm 1.83\%$ (median 96.62%).
+3. **Naive Bayes Skewed / Heavy-Tailed Variance:** Sufficient statistics perturbation on per-class feature counts and variances exhibits a heavy-tailed / skewed utility distribution. While median accuracy is consistently high ($98.97\%$ at $\epsilon=0.5$ and $99.49\%$ at $\epsilon=1.0$), Laplace noise on small variance estimates causes a small fraction of trials (3–5 out of 30) to drop below 95% (worst-case min $82.84\% - 85.61\%$), maintaining standard deviation at ~3.5%.
 
 ---
 
@@ -126,11 +126,12 @@ Evaluated across $N=30$ trials per configuration with stratified 80/20 train/tes
 When referencing or evaluating this work in research papers, the following methodology details and limitations must be explicitly cited:
 
 ### 1. Clinical Distribution Citations & Benchmark Design:
-The 4 benchmark replicates (`dataset_1` to `dataset_4`, 80,000 rows each) were generated using [generate_datasets.py](file:///c:/Users/DELL/Desktop/psit/projects%20btech/PrivaCare-AI/generate_datasets.py) with class profiles derived directly from clinical diagnostic guidelines:
-- **Glucose Ranges:** American Diabetes Association (ADA). "Classification and Diagnosis of Diabetes: Standards of Care in Diabetes—2024." *Diabetes Care* 47 (Suppl. 1), 2024: S20–S42. (Fasting normal < 100 mg/dL; Prediabetes 100–125 mg/dL; Diabetes $\ge$ 126 mg/dL).
+The 4 benchmark replicates (`dataset_1` to `dataset_4`, 80,000 rows each) were generated using [`generate_datasets.py`](generate_datasets.py) with class profiles derived directly from clinical diagnostic guidelines:
+- **Glucose Ranges:** American Diabetes Association (ADA). "Classification and Diagnosis of Diabetes: Standards of Care in Diabetes—2024." *Diabetes Care* 47 (Suppl. 1), 2024: S20–S42. (Fasting normal < 100 mg/dL; Prediabetes 100–125 mg/dL, Class 1 centered at 112.0 mg/dL; Diabetes $\ge$ 126 mg/dL).
+- **Stress Scale:** Perceived Stress Scale (PSS-10, Cohen et al., 1983) and clinical autonomic wearable stress index normalized to unit interval $[0.0, 1.0]$ (Cohen, S., Kamarck, T., & Mermelstein, R., *J Health Soc Behav* 24(4), 1983: 385–396; Low: 0.20, Moderate: 0.44, Elevated: 0.66, Severe: 0.79).
 - **Blood Pressure Ranges:** Whelton, P.K., et al. "2017 ACC/AHA/AAPA/ABC/ACPM/AGS/APhA/ASH/ASPC/NMA/PCNA Guideline for Prevention, Detection, Evaluation, and Management of High Blood Pressure in Adults." *J Am Coll Cardiol* 71(19), 2018: e127–e248. (Normal systolic < 120 mmHg; Stage 1 130–139 mmHg; Stage 2 $\ge$ 140 mmHg).
 - **Resting Heart Rate:** Clinical consensus on normal resting heart rate (60–100 BPM).
-- **Crucial Disclosure:** Class centers were designed from these clinical guidelines and were **NOT fitted to `data/dataset.csv`** (in `dataset.csv`, class 2 glucose was ~55 mg/dL, an unrepresentative outlier). The datasets are synthetic benchmark replicates; formal DP guarantees apply to the synthetic participants in the benchmark.
+- **Crucial Disclosure:** Class centers were designed directly from published clinical guidelines and were **not fitted to `data/dataset.csv`**, where raw class feature centers materially deviate from standard clinical reference distributions. The datasets are synthetic benchmark replicates; formal DP guarantees apply to the synthetic participants in the benchmark.
 
 ### 2. LR Gaussian vs LR Laplace Model Confounding:
 - `lr_gaussian.py` optimizes a single multinomial objective ($C=0.02$, MinMax $[0,1]$ + bias augmentation) consuming budget $\epsilon$ jointly across classes.
@@ -206,4 +207,4 @@ python generate_confusion_matrices.py
 
 ## 📜 License
 
-This project is licensed under the MIT License — see the [LICENSE](file:///c:/Users/DELL/Desktop/psit/projects%20btech/PrivaCare-AI/LICENSE) file for details.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.

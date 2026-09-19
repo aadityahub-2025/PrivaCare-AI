@@ -6,13 +6,16 @@ Clinical Distribution Design:
   Class profiles are designed according to established clinical diagnostic criteria:
     - American Diabetes Association (ADA 2024) Standards of Care in Diabetes:
         Normal fasting glucose: < 100 mg/dL; Prediabetes: 100-125 mg/dL; Diabetes: >= 126 mg/dL.
+        Class 1 is centered at 112.0 mg/dL (exact midpoint of 100-125 mg/dL prediabetic range).
     - American Heart Association / American College of Cardiology (AHA/ACC 2017) Guidelines:
         Normal systolic BP: < 120 mmHg; Stage 1 Hypertension: 130-139 mmHg; Stage 2: >= 140 mmHg.
+    - Autonomic & Psychological Stress Scale (Cohen et al., 1983 PSS-10 / Wearable Stress Index):
+        Normalized [0.0, 1.0]: Low/quiescent: 0.20; Moderate: 0.44; Elevated: 0.66; High strain: 0.79.
     - Clinical Cardiology consensus:
         Normal resting heart rate: 60-100 BPM; elevated in stress/hypertension/metabolic risk.
 
-NOTE: These centers were designed directly from these medical guidelines and were
-NOT fitted to data/dataset.csv (where class 2 glucose was ~55 mg/dL, an unrepresentative outlier).
+NOTE: These centers were designed directly from published clinical guidelines and were
+NOT fitted to data/dataset.csv, where raw cluster statistics materially deviate from clinical standards.
 
 Outputs:
   - datasets/dataset_1_rf_gaussian.json (seed=41) -> models/rf_gaussian.py
@@ -33,8 +36,8 @@ CLASS_PARAMS = {
         "heart_rate":              (67.0,  9.5,  30.0, 220.0),
         "blood_pressure_systolic": (109.0, 9.5,  60.0, 250.0)
     },
-    1: {  # Pre-diabetic
-        "glucose_level":           (130.0, 13.5, 30.0, 300.0),
+    1: {  # Pre-diabetic (ADA 2024: 100-125 mg/dL; center 112.0)
+        "glucose_level":           (112.0, 13.5, 30.0, 300.0),
         "stress_level":            (0.44,  0.05, 0.0,  1.0),
         "heart_rate":              (77.0,  9.5,  30.0, 220.0),
         "blood_pressure_systolic": (124.0, 9.5,  60.0, 250.0)

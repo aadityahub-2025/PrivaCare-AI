@@ -146,9 +146,10 @@ total_epsilon_basic = N_TRIALS * epsilon
 print(f"\n  --> Epsilon (e, per run)      = {epsilon}")
 print(f"      Guarantee                 : Pure epsilon-DP (delta = 0)")
 print(f"      Trials                    = {N_TRIALS} runs")
-print(f"\n  [!] COMPOSITION NOTE:")
-print(f"      {N_TRIALS} independent runs on same training data consume:")
-print(f"        Basic Composition: e_total = {total_epsilon_basic:.2f}")
+print(f"\n  [!] PRIVACY ACCOUNTING NOTE:")
+print(f"      - Production Release Guarantee: A single deployed release satisfies target epsilon = {epsilon}")
+print(f"      - Evaluation Note: These {N_TRIALS} runs are local Monte Carlo simulations to estimate utility distribution.")
+print(f"      - If all {N_TRIALS} models were released publicly: Basic Composition e_total = {total_epsilon_basic:.2f}")
 print(f"  " + "-"*58 + "\n")
 
 # ===========================================================================
