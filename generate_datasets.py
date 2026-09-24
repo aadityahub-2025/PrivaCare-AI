@@ -28,31 +28,31 @@ import json
 import numpy as np
 import os
 
-# Established clinical profile parameters (means, standard deviations, clinical bounds)
+# Established clinical profile parameters with realistic population variance (class overlap)
 CLASS_PARAMS = {
     0: {  # Healthy
-        "glucose_level":           (90.0,  13.5, 30.0, 300.0),
-        "stress_level":            (0.20,  0.05, 0.0,  1.0),
-        "heart_rate":              (67.0,  9.5,  30.0, 220.0),
-        "blood_pressure_systolic": (109.0, 9.5,  60.0, 250.0)
+        "glucose_level":           (90.0,  22.0, 30.0, 300.0),
+        "stress_level":            (0.20,  0.15, 0.0,  1.0),
+        "heart_rate":              (67.0,  15.0, 30.0, 220.0),
+        "blood_pressure_systolic": (109.0, 18.0, 60.0, 250.0)
     },
     1: {  # Pre-diabetic (ADA 2024: 100-125 mg/dL; center 112.0)
-        "glucose_level":           (112.0, 13.5, 30.0, 300.0),
-        "stress_level":            (0.44,  0.05, 0.0,  1.0),
-        "heart_rate":              (77.0,  9.5,  30.0, 220.0),
-        "blood_pressure_systolic": (124.0, 9.5,  60.0, 250.0)
+        "glucose_level":           (112.0, 22.0, 30.0, 300.0),
+        "stress_level":            (0.44,  0.15, 0.0,  1.0),
+        "heart_rate":              (77.0,  15.0, 30.0, 220.0),
+        "blood_pressure_systolic": (124.0, 18.0, 60.0, 250.0)
     },
     2: {  # Hypertensive
-        "glucose_level":           (97.0,  13.5, 30.0, 300.0),
-        "stress_level":            (0.66,  0.05, 0.0,  1.0),
-        "heart_rate":              (94.0,  9.5,  30.0, 220.0),
-        "blood_pressure_systolic": (156.0, 9.5,  60.0, 250.0)
+        "glucose_level":           (97.0,  22.0, 30.0, 300.0),
+        "stress_level":            (0.66,  0.15, 0.0,  1.0),
+        "heart_rate":              (94.0,  15.0, 30.0, 220.0),
+        "blood_pressure_systolic": (156.0, 18.0, 60.0, 250.0)
     },
     3: {  # Metabolic Risk
-        "glucose_level":           (174.0, 13.5, 30.0, 300.0),
-        "stress_level":            (0.79,  0.05, 0.0,  1.0),
-        "heart_rate":              (103.0, 9.5,  30.0, 220.0),
-        "blood_pressure_systolic": (163.0, 9.5,  60.0, 250.0)
+        "glucose_level":           (174.0, 22.0, 30.0, 300.0),
+        "stress_level":            (0.79,  0.15, 0.0,  1.0),
+        "heart_rate":              (103.0, 15.0, 30.0, 220.0),
+        "blood_pressure_systolic": (163.0, 18.0, 60.0, 250.0)
     }
 }
 
