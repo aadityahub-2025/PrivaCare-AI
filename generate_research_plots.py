@@ -49,7 +49,7 @@ ax.set_xlabel(r'Privacy Budget ($\epsilon$)', fontsize=13)
 ax.set_ylabel('Model Accuracy (%)', fontsize=13)
 
 min_y = min(nb_gaussian_acc + rf_laplace_acc + lr_gaussian_acc + lr_laplace_acc)
-ax.set_ylim(max(85.0, math.floor(min_y - 2.0)), 100.5)
+ax.set_ylim(math.floor(min_y - 4.0), 92.0)
 ax.set_xticks(epsilons)
 ax.legend(loc='lower right', frameon=True, shadow=True, fontsize=10)
 
@@ -92,7 +92,8 @@ ax.set_title(r"Performance at Strict Privacy Budget ($\epsilon=0.5, N=30$ Trials
 ax.set_ylabel('Score (%)', fontsize=13)
 ax.set_xticks(x)
 ax.set_xticklabels(models_display, fontsize=11)
-ax.set_ylim(85, 104)
+min_score = min(accuracies_e05 + [f*100 for f in f1_scores_e05])
+ax.set_ylim(math.floor(min_score - 8.0), 95.0)
 ax.legend(loc='upper right', fontsize=11)
 
 def autolabel(rects):
