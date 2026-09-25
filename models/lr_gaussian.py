@@ -1,24 +1,37 @@
 """
 PrivaCare-AI - models/lr_gaussian.py
-Model    : Logistic Regression
+Model    : Logistic Regression (Multinomial Softmax)
 Mechanism: Analytic Gaussian Mechanism — Output Perturbation
 Guarantee: (epsilon, delta)-DP
 
-DP Approach (Output Perturbation — Chaudhuri et al., 2011; Rubinstein et al., 2012):
-  - Augment features with constant bias feature: x_aug = [x_norm, 1.0] / sqrt(d + 1)
-    ensuring ||x||_2 <= 1 strictly across all samples.
-  - Train L2-regularized Logistic Regression with fit_intercept=False on clean data:
-      min_W  (1/2) * ||W||_F^2 + C * sum_i ell(W; x_i, y_i)
-  - Loss ell is L-Lipschitz with L = sqrt(2) for multinomial cross-entropy.
-  - Objective is strongly convex with lambda = 1.
-  - Sensitivity of W* under single-sample replacement:
-      Delta_2 = 2 * L * C / lambda = 2 * sqrt(2) * C
-  - Gaussian noise N(0, sigma^2) added to W* calibrated via Analytic Gaussian Mechanism
-    (Balle & Wang, 2018).
-  - Guarantee: (epsilon, delta)-DP holds for both feature weights and intercept.
+Mathematical Proof & Derivation (Multiclass Output Perturbation):
+  1. Regularized Empirical Risk Minimization (ERM):
+       min_W  (1/2) * ||W||_F^2 + C * sum_i ell(W; x_i, y_i)
+     where W in R^{K x (d+1)}, strongly convex with lambda = 1.
+  2. Multinomial Cross-Entropy Loss:
+       ell(W; x, y) = -log( exp(w_y^T x) / sum_c exp(w_c^T x) )
+  3. Gradient w.r.t Matrix W:
+       nabla_W ell(W; x, y) = (p_hat - e_y) x^T
+     where p_hat in Delta_K is the softmax probability vector and e_y is one-hot target.
+  4. Frobenius Norm of Gradient:
+       ||nabla_W ell(W; x, y)||_F = ||p_hat - e_y||_2 * ||x||_2
+     Since p_hat, e_y in probability simplex Delta_K:
+       ||p_hat - e_y||_2^2 = sum_c (p_hat_c - e_{y,c})^2 <= 2  (max at vertices)
+       -> ||p_hat - e_y||_2 <= sqrt(2)
+     With feature normalization ||x||_2 <= 1 (enforced by bias scaling 1/sqrt(d+1)):
+       ||nabla_W ell(W; x, y)||_F <= sqrt(2) * 1 = sqrt(2)
+     Hence, loss ell is strictly Lipschitz continuous with L = sqrt(2) in Frobenius norm.
+  5. Parameter Matrix Sensitivity (Chaudhuri et al., 2011, Theorem 1 / Rubinstein et al., 2012):
+     Under single-sample replacement (x_i, y_i) -> (x'_i, y'_i):
+       Delta_2 = (2 * L * C) / lambda = 2 * sqrt(2) * C
+     For C = 0.02, Delta_2 = 2 * sqrt(2) * 0.02 = 0.056569.
+  6. Noise Calibration (Analytic Gaussian Mechanism — Balle & Wang, 2018):
+     Gaussian noise N(0, sigma^2) added to each parameter entry in W*.
+     Guarantee: (epsilon, delta)-DP holds rigorously for all parameters.
 
 Dataset  : datasets/dataset_3_lr_gaussian.json (ONLY this file)
 Reference: Chaudhuri, Monteleoni, Sarwate (JMLR 2011) "Differentially Private ERM"
+           Rubinstein et al. (JMLR 2012) "Learning with Differential Privacy: Stability"
            Balle & Wang (NeurIPS 2018) "Improving the Gaussian Mechanism for DP"
 """
 

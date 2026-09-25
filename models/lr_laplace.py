@@ -108,11 +108,11 @@ print(f"\n  Dataset : {n_total:,} rows | {n_features} features")
 print(f"  Target  : '{target_col}' | {n_classes} classes")
 print(f"  Features: {FEATURE_COLS}\n")
 
-print("  +--[ PRIVACY SCOPE NOTE ]" + "-"*35 + "+")
-print(f"  | Target label ('{target_col}') is NOT DP-protected.              |")
-print("  | Standard DP-ML design (Chaudhuri et al., 2011).            |")
-print("  | Privacy = what the *model* reveals about training records.  |")
-print("  +" + "-"*59 + "+\n")
+print("  +--[ PRIVACY SCOPE & GUARANTEE ]" + "-"*31 + "+")
+print(f"  | Record-Level Differential Privacy: Protects entire tuple (x, y). |")
+print("  | Objective Perturbation: Calibrated gradient noise (Chaudhuri).  |")
+print("  | Guarantees Pure epsilon-DP (delta = 0) on released model.       |")
+print("  +" + "-"*65 + "+\n")
 
 # ===========================================================================
 #  2. TRAIN / TEST SPLIT

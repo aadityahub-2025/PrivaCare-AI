@@ -201,6 +201,22 @@ The 4 benchmark replicates (`dataset_1` to `dataset_4`, 80,000 rows each) were g
 - Repeated runs on the same training set compose privacy according to the Advanced Composition Theorem:
   $$\epsilon_{\text{total}} = \sqrt{2k\ln(1/\delta')}\epsilon + k\epsilon(e^\epsilon - 1) \quad \text{with total failure probability } k\delta + \delta'$$
 
+### 5. Threat Model & Privacy Scope (Record-Level DP vs Label DP):
+- **Record-Level Differential Privacy:** PrivaCare-AI operates under centralized Empirical Risk Minimization (DP-ERM). The privacy definition bounds the divergence between adjacent datasets $D, D'$ differing by any single record $z_i = (x_i, y_i) \leftrightarrow z'_i = (x'_i, y'_i)$.
+- **Protected Surface:** Any observer inspecting the released model parameters ($W^*$), predictions, or sufficient statistics cannot infer whether a specific patient participated in the study or reconstruct their combined $(x_i, y_i)$ beyond the $(\epsilon, \delta)$ bound (protecting against membership inference, reconstruction, and attribute inference attacks).
+- **Label Privacy Boundary (Explicit Scope Disclosure):** The framework does **not** inject Local Randomized Response (e.g., Warner 1965 / PATE label aggregation) onto raw diagnosis labels $y$ at the edge collection phase. The central server is trusted with clean labels for model training, and the trained model output satisfies DP. Deployments requiring untrusted telemetry aggregators should combine this architecture with local label perturbation.
+
+### 6. Mathematical Derivation: Multiclass Output Perturbation (`lr_gaussian.py`):
+For $K$-class multinomial logistic regression with weight matrix $W \in \mathbb{R}^{K \times (d+1)}$:
+1. **Regularized ERM Objective:**
+   $$\min_W \frac{1}{2}\|W\|_F^2 + C \sum_{i=1}^n \ell(W; x_i, y_i)$$
+2. **Gradient Frobenius Norm:**
+   $$\nabla_W \ell(W; x, y) = (\hat{p} - e_y) x^T \implies \|\nabla_W \ell\|_F = \|\hat{p} - e_y\|_2 \cdot \|x\|_2$$
+   Since $\hat{p}, e_y \in \Delta_K$ (probability simplex), $\|\hat{p} - e_y\|_2^2 = \sum_{c=1}^K (\hat{p}_c - e_{y,c})^2 \le 2$, so $\|\hat{p} - e_y\|_2 \le \sqrt{2}$. With $\|x\|_2 \le 1$ enforced by data-independent bias augmentation ($1/\sqrt{d+1}$), the loss is strictly $L$-Lipschitz with $L = \sqrt{2}$ in Frobenius norm.
+3. **Sensitivity Bound (Chaudhuri et al., 2011; Rubinstein et al., 2012):**
+   $$\Delta_F \le \frac{2 L C}{\lambda} = 2\sqrt{2}C \quad (\text{for } \lambda = 1, C = 0.02 \implies \Delta_F = 0.056569)$$
+4. **Noise Calibration:** Standard deviation $\sigma$ is computed via the exact Analytic Gaussian Mechanism (Balle & Wang, 2018), guaranteeing $(\epsilon, \delta)$-DP for all matrix entries.
+
 ---
 
 ## 🚀 Getting Started

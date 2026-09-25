@@ -109,11 +109,11 @@ print(f"\n  Dataset : {n_total:,} rows | {n_features} features")
 print(f"  Target  : '{target_col}' | {n_classes} classes")
 print(f"  Features: {FEATURE_COLS}\n")
 
-print("  +--[ PRIVACY SCOPE NOTE ]" + "-"*35 + "+")
-print(f"  | Target label ('{target_col}') is NOT DP-protected.              |")
-print("  | Tree-based DP: Random splits + PermuteAndFlip leaf labels.  |")
-print("  | Pure epsilon-DP — no delta required.                        |")
-print("  +" + "-"*59 + "+\n")
+print("  +--[ PRIVACY SCOPE & GUARANTEE ]" + "-"*31 + "+")
+print(f"  | Record-Level Differential Privacy: Protects entire tuple (x, y). |")
+print("  | Tree-based DP: Random splits + PermuteAndFlip on leaf nodes.  |")
+print("  | Guarantees Pure epsilon-DP (delta = 0) against inference attacks.|")
+print("  +" + "-"*65 + "+\n")
 
 # ===========================================================================
 #  2. TRAIN / TEST SPLIT
