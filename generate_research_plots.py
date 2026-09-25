@@ -10,10 +10,8 @@ colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
 
 os.makedirs("visualizations", exist_ok=True)
 
-# Delete old graphs (except fig4 which is confusion matrix, or delete all to rebuild)
-old_graphs = [f for f in os.listdir("visualizations") if f.endswith(".png") and not f.startswith("fig4")]
-for g in old_graphs:
-    os.remove(os.path.join("visualizations", g))
+# Ensure visualizations directory exists
+os.makedirs("visualizations", exist_ok=True)
 
 # Load benchmark results from results/benchmark_results.json
 json_path = "results/benchmark_results.json"
