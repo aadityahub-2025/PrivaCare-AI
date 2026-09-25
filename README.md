@@ -76,7 +76,8 @@ PrivaCare-AI/
 │
 ├── models/                                # Dedicated DP Training Scripts & IoT Pipeline
 │   ├── smart_ring_dp_pipeline.py          # 💍 Smart Ring Telemetry Differential Privacy Pipeline (PRIMARY)
-│   ├── rf_gaussian.py                     # Gaussian Naive Bayes (Sufficient Stats DP, pure ε-DP)
+│   ├── nb_gaussian.py                     # Gaussian Naive Bayes (Sufficient Stats DP, pure ε-DP)
+│   ├── rf_gaussian.py                     # Backward-compatibility alias -> nb_gaussian.py
 │   ├── rf_laplace.py                      # Random Forest (Tree-based DP, pure ε-DP)
 │   ├── lr_gaussian.py                     # Logistic Regression (Analytic Gaussian Output DP, (ε,δ)-DP)
 │   └── lr_laplace.py                      # Logistic Regression (Objective Perturbation DP, pure ε-DP)
@@ -106,7 +107,7 @@ PrivaCare-AI/
 
 | # | Script | Model Architecture | Privacy Mechanism | Guarantee | Privacy Budget | Baseline Acc | DP Acc ($\epsilon=0.5$) | Privacy Cost (Drop) |
 |---|--------|-------------------|-------------------|-----------|----------------|:---:|:---:|:---:|
-| 1 | [`models/rf_gaussian.py`](models/rf_gaussian.py) | Gaussian Naive Bayes | Sufficient Statistics Perturbation | Pure $\epsilon$-DP ($\delta=0$) | $\epsilon \in \{0.5, 0.7, 1.0\}$ | **86.31%** | **85.28% ± 0.96%** | `-1.02%` |
+| 1 | [`models/nb_gaussian.py`](models/nb_gaussian.py) | Gaussian Naive Bayes | Sufficient Statistics Perturbation | Pure $\epsilon$-DP ($\delta=0$) | $\epsilon \in \{0.5, 0.7, 1.0\}$ | **86.31%** | **85.28% ± 0.96%** | `-1.02%` |
 | 2 | [`models/rf_laplace.py`](models/rf_laplace.py) | Random Forest (20 trees) | Tree-based DP (Permute & Flip) | Pure $\epsilon$-DP ($\delta=0$) | $\epsilon \in \{0.5, 0.7, 1.0\}$ | **85.46%** | **83.23% ± 1.07%** | `-2.23%` |
 | 3 | [`models/lr_gaussian.py`](models/lr_gaussian.py) | Logistic Regression ($C=0.02$) | Analytic Gaussian Output Perturbation | $(\epsilon, \delta)$-DP ($\delta=10^{-5}$) | $\epsilon \in \{0.5, 0.7, 1.0\}$ | **82.47%** | **76.76% ± 4.63%** | `-5.72%` |
 | 4 | [`models/lr_laplace.py`](models/lr_laplace.py) | Logistic Regression ($C=1.0$) | Objective Perturbation (Vector DP) | Pure $\epsilon$-DP ($\delta=0$) | $\epsilon \in \{0.5, 0.7, 1.0\}$ | **86.79%** | **84.96% ± 0.00%** | `-1.84%` |
@@ -115,7 +116,7 @@ PrivaCare-AI/
 
 ### 🧠 In-Depth Mechanism Logic Across the 4 Models
 
-#### 1. Gaussian Naive Bayes — Sufficient Statistics Perturbation (`models/rf_gaussian.py`)
+#### 1. Gaussian Naive Bayes — Sufficient Statistics Perturbation (`models/nb_gaussian.py`)
 - **Core Logic:** In Gaussian Naive Bayes, classification decisions depend solely on empirical class frequencies $N_c$, per-class feature sums $\sum x_i$, and sums of squares $\sum x_i^2$. Instead of perturbing inputs or predictions, Laplace noise calibrated to domain sensitivity is added directly to these sufficient statistics during training.
 - **Mathematical Sensitivity:**
   $$\tilde{N}_c = N_c + \text{Lap}\left(0, \frac{1}{\epsilon}\right), \quad \tilde{\mu}_{c,j} = \mu_{c,j} + \text{Lap}\left(0, \frac{\Delta_\mu}{\epsilon}\right)$$
@@ -248,7 +249,7 @@ python generate_datasets.py
 
 ```bash
 # 1. Gaussian Naive Bayes (Sufficient Statistics DP, pure ε-DP)
-python models/rf_gaussian.py
+python models/nb_gaussian.py
 
 # 2. Random Forest (Tree-based DP, pure ε-DP)
 python models/rf_laplace.py

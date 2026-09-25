@@ -159,18 +159,12 @@ X_train = normalize_and_augment(X_train_raw)
 X_test  = normalize_and_augment(X_test_raw)
 
 # ===========================================================================
-#  3. EPSILON INPUT
+#  3. EPSILON CONFIGURATION (Privacy Budget)
 # ===========================================================================
-print("  " + "="*58)
-print("  GOLDEN RULE:")
-print("  e (epsilon) badhao  --> privacy KAM,  accuracy ZYADA")
-print("  e (epsilon) ghatao  --> privacy ZYADA, accuracy KAM")
-print("  " + "-"*58)
-print("  Recommended ranges:")
-print("    e <= 0.5   -->  High Privacy   (medical / sensitive data)")
-print("    e  = 1.0   -->  Balanced       (research)")
-print("    e >= 3.0   -->  High Accuracy  (less sensitive data)")
-print("  " + "="*58)
+# Privacy-Utility Tradeoff:
+#   Higher epsilon (e.g., e >= 3.0) -> Lower Privacy, Higher Utility / Accuracy
+#   Lower epsilon  (e.g., e <= 0.5) -> Higher Privacy, Lower Utility / Accuracy
+#   Standard clinical benchmark budgets: e in {0.5, 0.7, 1.0}
 
 if len(sys.argv) > 1:
     try:
@@ -178,11 +172,7 @@ if len(sys.argv) > 1:
     except ValueError:
         epsilon = 0.5
 else:
-    try:
-        user_input = input("  Enter Epsilon value (e.g. 0.1, 0.5, 1.0) [Default 0.5]: ").strip()
-        epsilon = float(user_input) if user_input else 0.5
-    except (ValueError, EOFError):
-        epsilon = 0.5
+    epsilon = 0.5
 
 
 # ===========================================================================
